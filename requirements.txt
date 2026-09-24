@@ -2,4 +2,9 @@ httpx>=0.27
 python-dotenv>=1.0
 google-genai>=0.3
 
+faster-whisper>=1.0
+sounddevice>=0.4
+numpy>=1.26
+playsound3>=2.2
+
 pytest>=8.0
