@@ -1,18 +1,26 @@
-"""Punto de entrada CLI (Fase 1 + Fase 2): recibe texto, decide motor,
-inyecta contexto de la bóveda de Obsidian, responde y evalúa qué guardar.
-
-Sin voz todavía (eso llega en Fase 3).
+"""Punto de entrada CLI (Fase 1 + Fase 2 + Fase 4): recibe texto, decide
+motor o acción directa, inyecta contexto de la bóveda, responde y evalúa
+qué guardar.
 """
 
 from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from src.actions.confirmacion import Confirmador, confirmar_por_texto
+from src.actions.system_control import abrir_aplicacion
 from src.engines.gemini_client import preguntar_gemini
 from src.engines.ollama_client import preguntar_ollama
 from src.obsidian.contexto import construir_contexto, evaluar_guardado
 from src.obsidian.estructura import asegurar_estructura_boveda
-from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA, decidir_motor
+from src.router.intent_router import (
+    MOTOR_ACCION,
+    MOTOR_GEMINI,
+    MOTOR_OLLAMA,
+    decidir_motor,
+    es_busqueda_web,
+    extraer_nombre_app,
+)
 
 
 @dataclass
@@ -28,14 +36,25 @@ class Respuesta:
     motor: str
 
 
-def procesar_comando(texto: str) -> Respuesta:
-    """Decide el motor, agrega contexto de la bóveda, responde y guarda si aplica."""
+def procesar_comando(texto: str, confirmador: Confirmador = confirmar_por_texto) -> Respuesta:
+    """Decide qué hacer con el texto: acción directa, o motor (con contexto de la bóveda)."""
+    nombre_app = extraer_nombre_app(texto)
+    if nombre_app:
+        if confirmador(f"¿Confirmas que abra '{nombre_app}'?"):
+            resultado = abrir_aplicacion(nombre_app)
+        else:
+            resultado_texto = "Cancelado, no abrí nada."
+            evaluar_guardado(texto, resultado_texto, MOTOR_ACCION)
+            return Respuesta(texto=resultado_texto, motor=MOTOR_ACCION)
+        evaluar_guardado(texto, resultado.mensaje, MOTOR_ACCION)
+        return Respuesta(texto=resultado.mensaje, motor=MOTOR_ACCION)
+
     motor = decidir_motor(texto)
     contexto = construir_contexto(texto)
     prompt = f"{contexto}\n\n{texto}" if contexto else texto
 
     if motor == MOTOR_GEMINI:
-        respuesta = preguntar_gemini(prompt)
+        respuesta = preguntar_gemini(prompt, usar_busqueda_web=es_busqueda_web(texto))
         if respuesta.exito:
             evaluar_guardado(texto, respuesta.texto, MOTOR_GEMINI)
             return Respuesta(texto=respuesta.texto, motor=MOTOR_GEMINI)
@@ -49,13 +68,17 @@ def procesar_comando(texto: str) -> Respuesta:
 
 
 def main() -> None:
-    load_dotenv()
+    # override=True: OLLAMA_HOST también existe como variable de entorno de
+    # Windows para configurar el SERVIDOR de Ollama (0.0.0.0:11434). Sin
+    # override, esa variable del sistema tapa la URL completa del .env
+    # (pensada para el CLIENTE) y las llamadas a Ollama fallan.
+    load_dotenv(override=True)
     try:
         asegurar_estructura_boveda()
     except RuntimeError as error:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
-    print("Jarvis (CLI de prueba, Fase 1 + Fase 2). Escribe 'salir' para terminar.")
+    print("Jarvis (CLI de prueba, Fase 1 + Fase 2 + Fase 4). Escribe 'salir' para terminar.")
     while True:
         try:
             texto = input("> ").strip()

@@ -1,8 +1,9 @@
 from unittest.mock import patch
 
+from src.actions.system_control import ResultadoAccion
 from src.engines.modelos import RespuestaMotor
 from src.main import Respuesta, procesar_comando
-from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA
+from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
 
 
 @patch("src.main.evaluar_guardado")
@@ -39,3 +40,27 @@ def test_fallback_a_ollama_si_gemini_falla(mock_gemini, mock_ollama, mock_contex
     resultado = procesar_comando("busca en internet el clima")
 
     assert resultado == Respuesta(texto="respuesta de respaldo", motor=MOTOR_OLLAMA)
+
+
+@patch("src.main.evaluar_guardado")
+@patch("src.main.abrir_aplicacion")
+def test_abrir_app_confirmada_ejecuta_la_accion(mock_abrir, mock_guardado):
+    mock_abrir.return_value = ResultadoAccion(exito=True, mensaje="Abriendo calculadora...")
+    confirmador_siempre_si = lambda descripcion: True
+
+    resultado = procesar_comando("abre la calculadora", confirmador=confirmador_siempre_si)
+
+    mock_abrir.assert_called_once_with("calculadora")
+    assert resultado == Respuesta(texto="Abriendo calculadora...", motor=MOTOR_ACCION)
+
+
+@patch("src.main.evaluar_guardado")
+@patch("src.main.abrir_aplicacion")
+def test_abrir_app_sin_confirmar_no_ejecuta_nada(mock_abrir, mock_guardado):
+    confirmador_siempre_no = lambda descripcion: False
+
+    resultado = procesar_comando("abre la calculadora", confirmador=confirmador_siempre_no)
+
+    mock_abrir.assert_not_called()
+    assert resultado.motor == MOTOR_ACCION
+    assert "ancel" in resultado.texto.lower()
