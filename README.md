@@ -7,8 +7,10 @@ Asistentes IA para uso personal.
 Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
-Estado actual: **Fase 0 + Fase 1** (scaffold + MVP por CLI de texto, sin voz
-ni Obsidian todavía).
+Estado actual: **Fase 0 + Fase 1 + Fase 2** (scaffold, MVP por CLI de texto
+con Ollama/Gemini, e integración con una bóveda de Obsidian como memoria:
+búsqueda de contexto en las notas antes de responder, y registro automático
+de interacciones/pendientes). Sin voz todavía (Fase 3).
 
 ### Setup
 
