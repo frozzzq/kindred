@@ -16,6 +16,13 @@ sistema: abrir aplicaciones y búsqueda web con confirmación obligatoria,
 métricas de uso, y una UI de escritorio con Flet). Sin clicks/escritura
 automática ni correo/redes sociales todavía.
 
+### Lanzadores rápidos
+
+Para no tener que abrir consola cada vez: `Jarvis-UI.bat`, `Jarvis-Texto.bat`,
+`Jarvis-Voz.bat`, `Jarvis-VozManosLibres.bat` y `Jarvis-Metricas.bat` en la
+raíz del repo activan el entorno y corren el modo correspondiente con doble
+clic. Hay accesos directos a cada uno en el escritorio.
+
 **Modelo de Ollama:** usa `qwen3:8b` por defecto (mejor razonamiento que
 `mistral:7b`, confirmado en pruebas reales) con `num_ctx=8192` en las
 llamadas (`src/engines/ollama_client.py`) — Ollama usa 4096 tokens de
