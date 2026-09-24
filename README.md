@@ -16,6 +16,14 @@ sistema: abrir aplicaciones y búsqueda web con confirmación obligatoria,
 métricas de uso, y una UI de escritorio con Flet). Sin clicks/escritura
 automática ni correo/redes sociales todavía.
 
+**Modelo de Ollama:** usa `qwen3:8b` por defecto (mejor razonamiento que
+`mistral:7b`, confirmado en pruebas reales) con `num_ctx=8192` en las
+llamadas (`src/engines/ollama_client.py`) — Ollama usa 4096 tokens de
+contexto por defecto aunque el modelo soporte más, y con el contexto de
+Obsidian + búsqueda web que se le inyecta, se saturaba fácil. Cambia
+`OLLAMA_MODEL` en tu `.env` si prefieres otro (ej. `mistral-nemo` es
+fuerte específicamente en español).
+
 ### Setup
 
 ```bash

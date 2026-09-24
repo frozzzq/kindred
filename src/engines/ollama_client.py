@@ -7,18 +7,27 @@ import httpx
 from src.engines.modelos import RespuestaMotor
 
 TIMEOUT_SEGUNDOS = 60
+# Ollama usa 4096 tokens de contexto por defecto aunque el modelo soporte
+# mucho más. Con el contexto de Obsidian + búsqueda web que le inyectamos,
+# se saturaba fácil. 8192 da margen real sin arriesgar la VRAM disponible.
+CONTEXTO_TOKENS = 8192
 
 
 def preguntar_ollama(prompt: str) -> RespuestaMotor:
     """Envía un prompt a Ollama remoto y devuelve la respuesta generada."""
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    modelo = os.getenv("OLLAMA_MODEL", "mistral:7b")
+    modelo = os.getenv("OLLAMA_MODEL", "qwen3:8b")
     url = f"{host.rstrip('/')}/api/generate"
 
     try:
         respuesta = httpx.post(
             url,
-            json={"model": modelo, "prompt": prompt, "stream": False},
+            json={
+                "model": modelo,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"num_ctx": CONTEXTO_TOKENS},
+            },
             timeout=TIMEOUT_SEGUNDOS,
         )
         respuesta.raise_for_status()
