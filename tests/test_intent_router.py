@@ -1,9 +1,11 @@
 from src.router.intent_router import (
+    MOTOR_ACCION,
     MOTOR_GEMINI,
     MOTOR_OLLAMA,
     decidir_motor,
     es_busqueda_web,
     extraer_nombre_app,
+    nombre_motor,
 )
 
 
@@ -42,3 +44,19 @@ def test_es_busqueda_web_detecta_palabra_clave():
 
 def test_es_busqueda_web_sin_palabra_clave():
     assert es_busqueda_web("recuérdame comprar leche") is False
+
+
+def test_nombre_motor_ollama_es_crimson():
+    assert nombre_motor(MOTOR_OLLAMA) == "Crimson"
+
+
+def test_nombre_motor_gemini_es_clover():
+    assert nombre_motor(MOTOR_GEMINI) == "Clover"
+
+
+def test_nombre_motor_accion_es_jarvis():
+    assert nombre_motor(MOTOR_ACCION) == "Jarvis"
+
+
+def test_nombre_motor_desconocido_cae_a_jarvis():
+    assert nombre_motor("algo_raro") == "Jarvis"

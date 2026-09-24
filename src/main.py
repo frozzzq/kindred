@@ -23,6 +23,7 @@ from src.router.intent_router import (
     decidir_motor,
     es_busqueda_web,
     extraer_nombre_app,
+    nombre_motor,
 )
 
 
@@ -103,7 +104,8 @@ def main() -> None:
             continue
         if texto.lower() in {"salir", "exit", "quit"}:
             break
-        print(procesar_comando(texto).texto)
+        respuesta = procesar_comando(texto)
+        print(f"{nombre_motor(respuesta.motor)}: {respuesta.texto}")
 
 
 if __name__ == "__main__":

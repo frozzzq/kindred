@@ -20,3 +20,33 @@ def test_transcribir_une_segmentos(mock_obtener_modelo):
     resultado = stt.transcribir(np.ones(10, dtype="float32"))
 
     assert resultado == "hola mundo"
+
+
+@patch("src.voice.stt.sd.InputStream")
+def test_grabar_hasta_silencio_para_tras_hablar_y_callar(mock_input_stream):
+    mock_input_stream.return_value.__enter__.return_value = MagicMock()
+
+    bloque_voz = np.full((stt.TAMANO_BLOQUE, 1), 0.5, dtype="float32")
+    bloque_silencio = np.zeros((stt.TAMANO_BLOQUE, 1), dtype="float32")
+
+    def simular_callbacks(*_args, **_kwargs):
+        callback = mock_input_stream.call_args.kwargs["callback"]
+        callback(bloque_voz, stt.TAMANO_BLOQUE, None, None)
+        for _ in range(stt.BLOQUES_SILENCIO_PARA_PARAR):
+            callback(bloque_silencio, stt.TAMANO_BLOQUE, None, None)
+
+    with patch("src.voice.stt.sd.sleep", side_effect=simular_callbacks):
+        audio = stt.grabar_hasta_silencio()
+
+    assert audio.size > 0
+
+
+@patch("src.voice.stt.transcribir", return_value="hola")
+@patch("src.voice.stt.grabar_hasta_silencio")
+def test_escuchar_comando_automatico_graba_y_transcribe(mock_grabar, mock_transcribir):
+    mock_grabar.return_value = np.ones(10, dtype="float32")
+
+    resultado = stt.escuchar_comando_automatico()
+
+    assert resultado == "hola"
+    mock_grabar.assert_called_once()

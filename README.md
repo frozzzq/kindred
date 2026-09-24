@@ -7,12 +7,13 @@ Asistentes IA para uso personal.
 Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
-Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 (parcial) +
-Fase 5 (parcial)** (scaffold, MVP por CLI de texto con Ollama/Gemini,
-integración con una bóveda de Obsidian como memoria, voz con Whisper local
-+ ElevenLabs en modo push-to-talk, control del sistema: abrir aplicaciones
-y búsqueda web con confirmación obligatoria, y métricas de uso). Sin wake
-word, clicks/escritura automática, correo/redes sociales, ni UI todavía.
+Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 (completa, con wake
+word) + Fase 4 (parcial) + Fase 5 (parcial)** (scaffold, MVP por CLI de
+texto con Ollama/Gemini, integración con una bóveda de Obsidian como
+memoria, voz con Whisper local + ElevenLabs — push-to-talk o manos libres
+con wake word "hey jarvis" —, control del sistema: abrir aplicaciones y
+búsqueda web con confirmación obligatoria, y métricas de uso). Sin
+clicks/escritura automática, correo/redes sociales, ni UI todavía.
 
 ### Setup
 
@@ -39,8 +40,24 @@ Presiona Enter para empezar a hablar y Enter de nuevo para terminar de
 grabar. Si ElevenLabs falla (sin créditos, sin conexión), la respuesta se
 muestra como texto en vez de audio.
 
-En ambos casos, un comando simple va a Ollama y uno complejo (p. ej. "busca
-en internet...") va a Gemini, con fallback automático a Ollama si falla.
+CLI de voz manos libres, con wake word (di **"hey jarvis"** para activar,
+sin presionar nada — graba automáticamente hasta detectar silencio):
+```bash
+python -m src.main_voz_wakeword
+```
+Usa [openWakeWord](https://github.com/dscripka/openWakeWord) (100% local,
+sin costo, modelo `hey_jarvis` pre-entrenado). La primera vez descarga los
+modelos (~5 MB). Requiere el mismo micrófono/ElevenLabs que el modo
+push-to-talk.
+
+En todos los casos, un comando simple va a Ollama y uno complejo (p. ej.
+"busca en internet...") va a Gemini, con fallback automático a Ollama si falla.
+
+**Nombres de personalidad:** en consola (y ya sea texto o voz), Ollama se
+muestra como **Crimson** y Gemini como **Clover** (ej. "Crimson: ..."), y
+las acciones del sistema como **Jarvis**. Es solo cosmético — internamente
+siguen siendo `ollama`/`gemini`/`accion`, así que no afecta logs, `.env`
+ni tests. Se define en `NOMBRES_MOTOR` (`src/router/intent_router.py`).
 
 **Voces distintas por motor:** en el CLI de voz, cada motor puede tener su
 propia voz de ElevenLabs — configurable con `ELEVENLABS_VOICE_ID_OLLAMA` y

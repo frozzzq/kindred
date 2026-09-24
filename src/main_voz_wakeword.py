@@ -1,9 +1,9 @@
-"""Punto de entrada de voz (Fase 3 + Fase 4, push-to-talk): escucha,
+"""Punto de entrada de voz manos libres (Fase 3, mejora sobre push-to-talk):
+espera la wake word "hey jarvis", graba automáticamente hasta silencio,
 transcribe, decide motor/acción, responde por texto y por voz.
 
-Reutiliza procesar_comando de src/main.py, así que el router, la
-integración con Obsidian y las acciones son exactamente las mismas que en
-el CLI de texto. Solo cambia cómo se pide confirmación: aquí, por voz.
+Reutiliza procesar_comando de src/main.py. Si prefieres el modo manual
+(presionar Enter), usa src/main_voz.py en su lugar — ambos coexisten.
 """
 
 from dotenv import load_dotenv
@@ -12,32 +12,35 @@ from src.actions.confirmacion import es_afirmativo
 from src.main import procesar_comando
 from src.obsidian.estructura import asegurar_estructura_boveda
 from src.router.intent_router import nombre_motor
-from src.voice.stt import escuchar_comando
+from src.voice.stt import escuchar_comando_automatico
 from src.voice.tts import hablar
+from src.voice.wakeword import esperar_wake_word
 
 
 def confirmar_por_voz(descripcion: str) -> bool:
-    """Pide confirmación hablando la pregunta y escuchando la respuesta."""
+    """Pide confirmación hablando la pregunta y escuchando la respuesta (sin Enter)."""
     hablar(f"{descripcion} Di sí o no.")
-    respuesta = escuchar_comando()
+    respuesta = escuchar_comando_automatico()
     return es_afirmativo(respuesta)
 
 
 def main() -> None:
-    # override=True: OLLAMA_HOST también existe como variable de entorno de
-    # Windows para configurar el SERVIDOR de Ollama (0.0.0.0:11434). Sin
-    # override, esa variable del sistema tapa la URL completa del .env
-    # (pensada para el CLIENTE) y las llamadas a Ollama fallan.
+    # override=True: ver comentario en src/main.py sobre el choque de
+    # OLLAMA_HOST con la variable de entorno del servidor de Ollama.
     load_dotenv(override=True)
     try:
         asegurar_estructura_boveda()
     except RuntimeError as error:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
-    print("Jarvis (voz, Fase 3 + Fase 4 - push-to-talk). Ctrl+C para salir.")
+    print('Jarvis (voz manos libres, Fase 3). Di "hey jarvis" para activar. Ctrl+C para salir.')
     while True:
         try:
-            texto = escuchar_comando()
+            print("Esperando wake word...")
+            esperar_wake_word()
+            print("¡Wake word detectada! Escuchando...")
+
+            texto = escuchar_comando_automatico()
             if not texto:
                 print("[aviso] No se entendió nada, intenta de nuevo.")
                 continue

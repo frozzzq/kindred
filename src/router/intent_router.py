@@ -15,6 +15,15 @@ MOTOR_GEMINI = "gemini"
 MOTOR_ACCION = "accion"
 MOTOR_GEMINI_FALLO = "gemini_fallo"  # se registra cuando Gemini fue intentado pero falló (Fase 5: métricas)
 
+# Nombres de personalidad solo para mostrar/decir (cosmético). Los
+# identificadores internos (ollama/gemini/accion) no cambian, para no
+# romper logs, variables de entorno ni tests existentes.
+NOMBRES_MOTOR = {
+    MOTOR_OLLAMA: "Crimson",
+    MOTOR_GEMINI: "Clover",
+    MOTOR_ACCION: "Jarvis",
+}
+
 PALABRAS_CLAVE_BUSQUEDA_WEB = ("busca", "buscar", "internet", "investiga")
 
 PALABRAS_CLAVE_COMPLEJO = PALABRAS_CLAVE_BUSQUEDA_WEB + (
@@ -38,6 +47,11 @@ def decidir_motor(texto: str) -> str:
     if any(palabra in texto_normalizado for palabra in PALABRAS_CLAVE_COMPLEJO):
         return MOTOR_GEMINI
     return MOTOR_OLLAMA
+
+
+def nombre_motor(motor: str) -> str:
+    """Nombre de personalidad para mostrar/decir, según qué motor respondió."""
+    return NOMBRES_MOTOR.get(motor, "Jarvis")
 
 
 def es_busqueda_web(texto: str) -> bool:
