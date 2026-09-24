@@ -9,6 +9,8 @@ import numpy as np
 import sounddevice as sd
 from openwakeword.model import Model
 
+from src.voice.audio import amplificar
+
 TASA_MUESTREO = 16000
 TAMANO_BLOQUE = 1280  # openWakeWord espera bloques de 80ms a 16kHz
 UMBRAL_DETECCION = 0.3  # ajustado tras pruebas reales: 0.5 nunca se alcanzaba con este micrófono
@@ -33,7 +35,8 @@ def esperar_wake_word() -> None:
         nonlocal detectada
         if detectada:
             return
-        audio_int16 = (datos_entrada[:, 0] * 32767).astype(np.int16)
+        audio_amplificado = amplificar(datos_entrada[:, 0])
+        audio_int16 = (audio_amplificado * 32767).astype(np.int16)
         predicciones = modelo.predict(audio_int16)
         if predicciones.get("hey_jarvis", 0.0) >= UMBRAL_DETECCION:
             detectada = True

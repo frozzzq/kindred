@@ -9,6 +9,7 @@ el CLI de texto. Solo cambia cómo se pide confirmación: aquí, por voz.
 from dotenv import load_dotenv
 
 from src.actions.confirmacion import es_afirmativo
+from src.consola import forzar_utf8
 from src.main import procesar_comando
 from src.obsidian.estructura import asegurar_estructura_boveda
 from src.router.intent_router import nombre_motor
@@ -24,6 +25,7 @@ def confirmar_por_voz(descripcion: str) -> bool:
 
 
 def main() -> None:
+    forzar_utf8()
     # override=True: OLLAMA_HOST también existe como variable de entorno de
     # Windows para configurar el SERVIDOR de Ollama (0.0.0.0:11434). Sin
     # override, esa variable del sistema tapa la URL completa del .env

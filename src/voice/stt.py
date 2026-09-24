@@ -13,6 +13,8 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 
+from src.voice.audio import amplificar
+
 TASA_MUESTREO = 16000
 TAMANO_MODELO = "base"
 
@@ -38,7 +40,7 @@ def grabar_hasta_enter() -> np.ndarray:
 
     def callback(datos_entrada, frames, tiempo, estado):
         with bloqueo:
-            bloques.append(datos_entrada.copy())
+            bloques.append(amplificar(datos_entrada.copy()))
 
     with sd.InputStream(samplerate=TASA_MUESTREO, channels=1, dtype="float32", callback=callback):
         input()
@@ -67,7 +69,7 @@ class Grabadora:
 
         def callback(datos_entrada, frames, tiempo, estado):
             with self._bloqueo:
-                self._bloques.append(datos_entrada.copy())
+                self._bloques.append(amplificar(datos_entrada.copy()))
 
         self._stream = sd.InputStream(samplerate=TASA_MUESTREO, channels=1, dtype="float32", callback=callback)
         self._stream.start()
@@ -93,8 +95,9 @@ def grabar_hasta_silencio() -> np.ndarray:
 
     def callback(datos_entrada, frames, tiempo, flags):
         with bloqueo:
-            bloques.append(datos_entrada.copy())
-            rms = float(np.sqrt(np.mean(datos_entrada**2)))
+            datos_amplificados = amplificar(datos_entrada.copy())
+            bloques.append(datos_amplificados)
+            rms = float(np.sqrt(np.mean(datos_amplificados**2)))
             estado["total_bloques"] += 1
 
             if rms >= UMBRAL_RMS_VOZ:

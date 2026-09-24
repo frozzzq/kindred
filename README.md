@@ -24,6 +24,26 @@ Obsidian + búsqueda web que se le inyecta, se saturaba fácil. Cambia
 `OLLAMA_MODEL` en tu `.env` si prefieres otro (ej. `mistral-nemo` es
 fuerte específicamente en español).
 
+**Velocidad de Ollama:** tres ajustes en `src/engines/ollama_client.py` y
+`src/main.py`, confirmados con mediciones reales:
+- `think: false` — Qwen3 (y otros modelos "razonadores") generan un modo
+  de pensamiento largo por defecto que nunca mostramos; desactivarlo bajó
+  una respuesta trivial de ~5.8s a ~0.6s.
+- `keep_alive: "30m"` — sin esto, Ollama descarga el modelo de la VRAM
+  tras 5 minutos sin uso (default del servidor) y el siguiente mensaje
+  paga la recarga completa (~5-6GB desde disco): **26.5s medidos** en una
+  recarga real, contra **0.9-2.3s** con el modelo ya caliente. Esto era la
+  causa principal de la lentitud "de cada mensaje", no el hardware.
+- `INSTRUCCION_BREVEDAD` — se le pide al modelo responder en 1-3 oraciones
+  salvo que se pida detalle, lo que además de generarse más rápido reduce
+  el texto que ElevenLabs tiene que sintetizar (TTS bajó de ~5-10s a
+  ~1.5s en pruebas, sin necesitar streaming).
+
+**Micrófono débil:** si tu micrófono entrega poca señal incluso al
+volumen máximo de Windows, la voz amplifica la señal capturada por
+software (`GANANCIA_MICROFONO` en `.env`, default 3.0x) antes de mandarla
+a Whisper y al detector de wake word — afecta tanto STT como wake word.
+
 ### Setup
 
 ```bash

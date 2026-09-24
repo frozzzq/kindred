@@ -11,6 +11,11 @@ TIMEOUT_SEGUNDOS = 60
 # mucho más. Con el contexto de Obsidian + búsqueda web que le inyectamos,
 # se saturaba fácil. 8192 da margen real sin arriesgar la VRAM disponible.
 CONTEXTO_TOKENS = 8192
+# Sin esto, Ollama descarga el modelo de la VRAM tras 5 minutos sin uso
+# (default del servidor) y cada mensaje siguiente paga la recarga completa
+# desde disco (varios segundos) antes de poder generar nada. 30 minutos
+# alcanza para una sesión de uso normal sin quedarse cargado para siempre.
+KEEP_ALIVE = "30m"
 
 
 def preguntar_ollama(prompt: str) -> RespuestaMotor:
@@ -26,6 +31,12 @@ def preguntar_ollama(prompt: str) -> RespuestaMotor:
                 "model": modelo,
                 "prompt": prompt,
                 "stream": False,
+                # think=False: modelos tipo Qwen3 generan un razonamiento
+                # interno largo por defecto (varios segundos extra por
+                # respuesta) que nunca mostramos ni usamos. Desactivarlo
+                # bajó una respuesta trivial de ~5.8s a ~0.6s en pruebas.
+                "think": False,
+                "keep_alive": KEEP_ALIVE,
                 "options": {"num_ctx": CONTEXTO_TOKENS},
             },
             timeout=TIMEOUT_SEGUNDOS,

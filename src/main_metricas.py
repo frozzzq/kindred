@@ -2,11 +2,13 @@
 
 from dotenv import load_dotenv
 
+from src.consola import forzar_utf8
 from src.obsidian.metricas import calcular_metricas
 from src.router.intent_router import MOTOR_GEMINI_FALLO
 
 
 def main() -> None:
+    forzar_utf8()
     load_dotenv(override=True)
     metricas = calcular_metricas()
 

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from src.actions.busqueda_web import construir_contexto_web
 from src.actions.confirmacion import Confirmador, confirmar_por_texto
 from src.actions.system_control import abrir_aplicacion
+from src.consola import forzar_utf8
 from src.engines.gemini_client import preguntar_gemini
 from src.engines.ollama_client import preguntar_ollama
 from src.obsidian.contexto import construir_contexto, evaluar_guardado
@@ -24,6 +25,12 @@ from src.router.intent_router import (
     es_busqueda_web,
     extraer_nombre_app,
     nombre_motor,
+)
+
+
+INSTRUCCION_BREVEDAD = (
+    "Responde de forma breve y directa (1-3 oraciones). "
+    "Da más detalle solo si el usuario lo pide explícitamente."
 )
 
 
@@ -65,6 +72,9 @@ def procesar_comando(
     motor = motor_forzado or decidir_motor(texto)
     contexto = construir_contexto(texto)
     prompt = f"{contexto}\n\n{texto}" if contexto else texto
+    # Respuestas más cortas = menos tokens que generar (Ollama más rápido)
+    # y menos texto que sintetizar (ElevenLabs más rápido).
+    prompt = f"{INSTRUCCION_BREVEDAD}\n\n{prompt}"
 
     if motor == MOTOR_GEMINI:
         respuesta = preguntar_gemini(prompt, usar_busqueda_web=es_busqueda_web(texto))
@@ -93,6 +103,7 @@ def procesar_comando(
 
 
 def main() -> None:
+    forzar_utf8()
     # override=True: OLLAMA_HOST también existe como variable de entorno de
     # Windows para configurar el SERVIDOR de Ollama (0.0.0.0:11434). Sin
     # override, esa variable del sistema tapa la URL completa del .env

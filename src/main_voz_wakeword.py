@@ -9,6 +9,7 @@ Reutiliza procesar_comando de src/main.py. Si prefieres el modo manual
 from dotenv import load_dotenv
 
 from src.actions.confirmacion import es_afirmativo
+from src.consola import forzar_utf8
 from src.main import procesar_comando
 from src.obsidian.estructura import asegurar_estructura_boveda
 from src.router.intent_router import nombre_motor
@@ -25,6 +26,7 @@ def confirmar_por_voz(descripcion: str) -> bool:
 
 
 def main() -> None:
+    forzar_utf8()
     # override=True: ver comentario en src/main.py sobre el choque de
     # OLLAMA_HOST con la variable de entorno del servidor de Ollama.
     load_dotenv(override=True)

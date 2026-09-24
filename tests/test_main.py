@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from src.actions.system_control import ResultadoAccion
 from src.engines.modelos import RespuestaMotor
-from src.main import Respuesta, procesar_comando
+from src.main import INSTRUCCION_BREVEDAD, Respuesta, procesar_comando
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_GEMINI_FALLO, MOTOR_OLLAMA
 
 
@@ -16,6 +16,8 @@ def test_comando_simple_responde_con_ollama(mock_ollama, mock_contexto, mock_gua
 
     assert resultado == Respuesta(texto="respuesta ollama", motor=MOTOR_OLLAMA)
     mock_guardado.assert_called_once_with("recuérdame comprar leche", "respuesta ollama", MOTOR_OLLAMA)
+    prompt_enviado = mock_ollama.call_args.args[0]
+    assert INSTRUCCION_BREVEDAD in prompt_enviado
 
 
 @patch("src.main.evaluar_guardado")
