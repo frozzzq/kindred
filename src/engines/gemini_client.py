@@ -13,7 +13,7 @@ def preguntar_gemini(prompt: str) -> RespuestaMotor:
     en vez de dejar que la excepción se propague.
     """
     api_key = os.getenv("GEMINI_API_KEY")
-    modelo = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+    modelo = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
     if not api_key:
         return RespuestaMotor(exito=False, error="Falta GEMINI_API_KEY en el entorno")
