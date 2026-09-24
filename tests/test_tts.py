@@ -5,6 +5,28 @@ import httpx
 from src.voice import tts
 
 
+def test_limpiar_para_voz_quita_markdown_viñetas_y_emojis():
+    texto = "¡Claro! Tienes **3 pendientes**:\n- Comprar pan\n- [ ] Comprar leche\n1. Llamar al doctor 😊📞"
+
+    limpio = tts.limpiar_para_voz(texto)
+
+    assert limpio == "¡Claro! Tienes 3 pendientes: Comprar pan Comprar leche Llamar al doctor"
+
+
+def test_limpiar_para_voz_conserva_el_texto_de_los_enlaces():
+    assert tts.limpiar_para_voz("Mira [el clima](https://x.com) hoy") == "Mira el clima hoy"
+
+
+@patch("src.voice.tts.httpx.post")
+def test_hablar_manda_el_texto_ya_limpio(mock_post, monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "clave-de-prueba")
+    mock_post.side_effect = httpx.ConnectError("sin conexion")
+
+    tts.hablar("**Hola** 😊")
+
+    assert mock_post.call_args.kwargs["json"]["text"] == "Hola"
+
+
 @patch("src.voice.tts.playsound")
 @patch("src.voice.tts.httpx.post")
 def test_hablar_reproduce_audio_exitoso(mock_post, mock_playsound, monkeypatch):

@@ -9,6 +9,7 @@ Reutiliza procesar_comando de src/main.py. Si prefieres el modo manual
 from dotenv import load_dotenv
 
 from src.actions.confirmacion import es_afirmativo
+from src.agente.conversacion import Conversacion
 from src.consola import forzar_utf8
 from src.main import procesar_comando
 from src.obsidian.estructura import asegurar_estructura_boveda
@@ -35,6 +36,7 @@ def main() -> None:
     except RuntimeError as error:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
+    conversacion = Conversacion()
     print('Jarvis (voz manos libres, Fase 3). Di "hey jarvis" para activar. Ctrl+C para salir.')
     while True:
         try:
@@ -48,7 +50,7 @@ def main() -> None:
                 continue
 
             print(f"Tú: {texto}")
-            respuesta = procesar_comando(texto, confirmador=confirmar_por_voz)
+            respuesta = procesar_comando(texto, confirmador=confirmar_por_voz, conversacion=conversacion)
             print(f"{nombre_motor(respuesta.motor)}: {respuesta.texto}")
             hablar(respuesta.texto, motor=respuesta.motor)
         except KeyboardInterrupt:

@@ -1,6 +1,6 @@
-"""Punto de entrada CLI (Fase 1 + Fase 2 + Fase 4): recibe texto, decide
-motor o acción directa, inyecta contexto de la bóveda, responde y evalúa
-qué guardar.
+"""Punto de entrada CLI: recibe texto, decide motor o acción directa, y
+responde con la personalidad del agente, su memoria de la conversación y
+acceso a la bóveda de Obsidian mediante herramientas.
 """
 
 from dataclasses import dataclass
@@ -10,11 +10,19 @@ from dotenv import load_dotenv
 from src.actions.busqueda_web import construir_contexto_web
 from src.actions.confirmacion import Confirmador, confirmar_por_texto
 from src.actions.system_control import abrir_aplicacion
+from src.agente.conversacion import Conversacion
+from src.agente.personalidad import construir_prompt_sistema, quitar_muletilla_final
 from src.consola import forzar_utf8
 from src.engines.gemini_client import preguntar_gemini
-from src.engines.ollama_client import preguntar_ollama
-from src.obsidian.contexto import construir_contexto, evaluar_guardado
+from src.engines.ollama_client import conversar_ollama
+from src.obsidian.contexto import evaluar_guardado
 from src.obsidian.estructura import asegurar_estructura_boveda
+from src.obsidian.herramientas import (
+    DEFINICIONES,
+    MENSAJE_VERIFICACION,
+    afirma_cambio_sin_hacerlo,
+    ejecutar_herramienta,
+)
 from src.obsidian.vault_writer import registrar_interaccion
 from src.router.intent_router import (
     MOTOR_ACCION,
@@ -25,12 +33,6 @@ from src.router.intent_router import (
     es_busqueda_web,
     extraer_nombre_app,
     nombre_motor,
-)
-
-
-INSTRUCCION_BREVEDAD = (
-    "Responde de forma breve y directa (1-3 oraciones). "
-    "Da más detalle solo si el usuario lo pide explícitamente."
 )
 
 
@@ -47,58 +49,83 @@ class Respuesta:
     motor: str
 
 
+def _responder(texto: str, respuesta: str, motor: str, conversacion: Conversacion) -> Respuesta:
+    respuesta = quitar_muletilla_final(respuesta)
+    evaluar_guardado(texto, respuesta, motor)
+    conversacion.agregar_turno(texto, respuesta)
+    return Respuesta(texto=respuesta, motor=motor)
+
+
 def procesar_comando(
     texto: str,
     confirmador: Confirmador = confirmar_por_texto,
     motor_forzado: str | None = None,
+    conversacion: Conversacion | None = None,
 ) -> Respuesta:
-    """Decide qué hacer con el texto: acción directa, o motor (con contexto de la bóveda).
+    """Decide qué hacer con el texto: acción directa, o que un agente responda.
 
     motor_forzado (MOTOR_OLLAMA/MOTOR_GEMINI) salta el router, para cuando el
     usuario elige el agente a mano; None deja que el router decida. Las
     acciones (abrir apps) se detectan igual en cualquier caso.
+    conversacion guarda los turnos previos; sin ella, cada mensaje es independiente.
     """
+    conversacion = conversacion or Conversacion()
+
     nombre_app = extraer_nombre_app(texto)
     if nombre_app:
         if confirmador(f"¿Confirmas que abra '{nombre_app}'?"):
-            resultado = abrir_aplicacion(nombre_app)
+            mensaje = abrir_aplicacion(nombre_app).mensaje
         else:
-            resultado_texto = "Cancelado, no abrí nada."
-            evaluar_guardado(texto, resultado_texto, MOTOR_ACCION)
-            return Respuesta(texto=resultado_texto, motor=MOTOR_ACCION)
-        evaluar_guardado(texto, resultado.mensaje, MOTOR_ACCION)
-        return Respuesta(texto=resultado.mensaje, motor=MOTOR_ACCION)
+            mensaje = "Cancelado, no abrí nada."
+        return _responder(texto, mensaje, MOTOR_ACCION, conversacion)
 
     motor = motor_forzado or decidir_motor(texto)
-    contexto = construir_contexto(texto)
-    prompt = f"{contexto}\n\n{texto}" if contexto else texto
-    # Respuestas más cortas = menos tokens que generar (Ollama más rápido)
-    # y menos texto que sintetizar (ElevenLabs más rápido).
-    prompt = f"{INSTRUCCION_BREVEDAD}\n\n{prompt}"
 
     if motor == MOTOR_GEMINI:
-        respuesta = preguntar_gemini(prompt, usar_busqueda_web=es_busqueda_web(texto))
+        # Gemini todavía no tiene herramientas: recibe la personalidad de Clover,
+        # el perfil y los pendientes en el prompt de sistema, y el historial como texto.
+        historial = conversacion.como_transcripcion()
+        prompt = f"Conversación reciente:\n{historial}\n\nMensaje actual del usuario: {texto}" if historial else texto
+        respuesta = preguntar_gemini(
+            prompt,
+            usar_busqueda_web=es_busqueda_web(texto),
+            instruccion_sistema=construir_prompt_sistema(MOTOR_GEMINI, con_herramientas=False),
+        )
         if respuesta.exito:
-            evaluar_guardado(texto, respuesta.texto, MOTOR_GEMINI)
-            return Respuesta(texto=respuesta.texto, motor=MOTOR_GEMINI)
+            return _responder(texto, respuesta.texto, MOTOR_GEMINI, conversacion)
         print(f"[aviso] Gemini falló ({respuesta.error}), usando Ollama como fallback...")
         try:
             registrar_interaccion(texto, f"[fallo] {respuesta.error}", MOTOR_GEMINI_FALLO)
         except RuntimeError:
             pass  # sin bóveda configurada: no bloquea el flujo, solo no queda métrica de este fallo
 
+    mensaje_usuario = texto
     if es_busqueda_web(texto):
         # Ollama no tiene acceso a internet nativo (a diferencia de Gemini,
         # que usa su propio grounding); le damos resultados reales como
         # contexto auxiliar, típico cuando Gemini falló y cayó aquí.
         contexto_web = construir_contexto_web(texto)
         if contexto_web:
-            prompt = f"{prompt}\n\n{contexto_web}"
+            mensaje_usuario = f"{texto}\n\n{contexto_web}"
 
-    respuesta = preguntar_ollama(prompt)
+    mensajes = [
+        {"role": "system", "content": construir_prompt_sistema(MOTOR_OLLAMA, con_herramientas=True)},
+        *conversacion.mensajes(),
+        {"role": "user", "content": mensaje_usuario},
+    ]
+    respuesta = conversar_ollama(mensajes, herramientas=DEFINICIONES, ejecutar=ejecutar_herramienta)
+    if respuesta.exito and afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):
+        # Dijo que cambió algo sin haberlo hecho: se le da una oportunidad de hacerlo de verdad.
+        mensajes += [
+            {"role": "assistant", "content": respuesta.texto},
+            {"role": "user", "content": MENSAJE_VERIFICACION},
+        ]
+        respuesta = conversar_ollama(mensajes, herramientas=DEFINICIONES, ejecutar=ejecutar_herramienta)
+        if respuesta.exito and afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):
+            # Mejor admitirlo que decirle al usuario que algo quedó guardado cuando no.
+            respuesta.texto = "No logré hacer ese cambio en tu bóveda. ¿Me lo repites, por favor?"
     if respuesta.exito:
-        evaluar_guardado(texto, respuesta.texto, MOTOR_OLLAMA)
-        return Respuesta(texto=respuesta.texto, motor=MOTOR_OLLAMA)
+        return _responder(texto, respuesta.texto, MOTOR_OLLAMA, conversacion)
     return Respuesta(texto=f"[error] Ollama también falló: {respuesta.error}", motor=MOTOR_OLLAMA)
 
 
@@ -114,7 +141,8 @@ def main() -> None:
     except RuntimeError as error:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
-    print("Jarvis (CLI de prueba, Fase 1 + Fase 2 + Fase 4). Escribe 'salir' para terminar.")
+    conversacion = Conversacion()
+    print("Jarvis (CLI de texto). Escribe 'salir' para terminar.")
     while True:
         try:
             texto = input("> ").strip()
@@ -124,7 +152,7 @@ def main() -> None:
             continue
         if texto.lower() in {"salir", "exit", "quit"}:
             break
-        respuesta = procesar_comando(texto)
+        respuesta = procesar_comando(texto, conversacion=conversacion)
         print(f"{nombre_motor(respuesta.motor)}: {respuesta.texto}")
 
 

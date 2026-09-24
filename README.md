@@ -91,9 +91,35 @@ En todos los casos, un comando simple va a Ollama y uno complejo (p. ej.
 
 **Nombres de personalidad:** en consola (y ya sea texto o voz), Ollama se
 muestra como **Crimson** y Gemini como **Clover** (ej. "Crimson: ..."), y
-las acciones del sistema como **Jarvis**. Es solo cosmético — internamente
-siguen siendo `ollama`/`gemini`/`accion`, así que no afecta logs, `.env`
-ni tests. Se define en `NOMBRES_MOTOR` (`src/router/intent_router.py`).
+las acciones del sistema como **Jarvis**. Internamente siguen siendo
+`ollama`/`gemini`/`accion`, así que no afecta logs, `.env` ni tests. Se
+define en `NOMBRES_MOTOR` (`src/router/intent_router.py`).
+
+**Personalidad, memoria y bóveda (`src/agente/`, `src/obsidian/herramientas.py`):**
+- Cada agente tiene un prompt de sistema con su personalidad
+  (`src/agente/personalidad.py`): **Crimson** es confiable, alegre,
+  calculadora y diplomática; **Clover** es igual de inteligente pero seria,
+  fría, orientada a cumplir el objetivo, ordenada y transparente. Incluye la
+  fecha, el mapa de la bóveda y tu perfil (`Yo.md`, `Patrones.md`).
+- Recuerda los últimos 5 turnos de la conversación (`src/agente/conversacion.py`);
+  en la UI, Voz y Chat comparten la misma conversación.
+- Crimson usa la bóveda con **herramientas** (tool calling de Ollama): lee
+  notas completas, busca, agrega y completa pendientes, guarda datos tuyos y
+  contactos. Si una petición es ambigua, pregunta antes de actuar.
+- Salvaguardas contra un modelo de 8B que a veces falla: si dice que cambió
+  algo sin haber llamado a la herramienta, se le pide hacerlo de verdad (y si
+  insiste, admite que no pudo); si escribe la llamada como texto JSON, se
+  ejecuta igual; se quita la muletilla "¿necesitas algo más?" del final.
+- **Reflexión** (`src/agente/reflexion.py`): cada 10 interacciones, en
+  segundo plano, revisa lo nuevo del log y anota en `Yo.md` y `Patrones.md`
+  lo que aprendió de ti (sin duplicar, y exigiendo 3+ interacciones para un
+  patrón). El contador vive en `00-Sistema/Configuracion.md`.
+- El log de conversaciones ya no se usa como fuente de búsqueda (contaminaba
+  las respuestas con charlas viejas), y los pendientes ya no se guardan por
+  palabras clave.
+- Clover (Gemini) recibe su personalidad, tu perfil y tus pendientes en el
+  prompt, pero todavía no tiene herramientas.
+- La voz ya no lee markdown, viñetas ni emojis (`limpiar_para_voz` en `src/voice/tts.py`).
 
 **Voces distintas por motor:** en el CLI de voz, cada motor puede tener su
 propia voz de ElevenLabs — configurable con `ELEVENLABS_VOICE_ID_OLLAMA` y

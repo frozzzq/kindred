@@ -5,12 +5,17 @@ import os
 from src.engines.modelos import RespuestaMotor
 
 
-def preguntar_gemini(prompt: str, usar_busqueda_web: bool = False) -> RespuestaMotor:
+def preguntar_gemini(
+    prompt: str,
+    usar_busqueda_web: bool = False,
+    instruccion_sistema: str | None = None,
+) -> RespuestaMotor:
     """Envía un prompt a Gemini Flash y devuelve la respuesta generada.
 
     Si usar_busqueda_web=True, activa el grounding con Google Search del
     propio Gemini para que la respuesta pueda basarse en resultados reales
     de internet (Fase 4), en vez del conocimiento estático del modelo.
+    instruccion_sistema define la identidad/personalidad del agente.
 
     Cualquier fallo (sin API key, sin cuota, sin internet) se reporta como
     RespuestaMotor(exito=False) para que el router haga fallback a Ollama,
@@ -28,9 +33,12 @@ def preguntar_gemini(prompt: str, usar_busqueda_web: bool = False) -> RespuestaM
     except ImportError:
         return RespuestaMotor(exito=False, error="El paquete 'google-genai' no está instalado")
 
-    config = None
+    opciones = {}
     if usar_busqueda_web:
-        config = types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+        opciones["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+    if instruccion_sistema:
+        opciones["system_instruction"] = instruccion_sistema
+    config = types.GenerateContentConfig(**opciones) if opciones else None
 
     try:
         cliente = genai.Client(api_key=api_key)

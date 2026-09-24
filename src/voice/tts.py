@@ -1,6 +1,7 @@
 """Síntesis de voz (TTS) con ElevenLabs."""
 
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -18,6 +19,21 @@ VARIABLE_VOZ_POR_MOTOR = {
     MOTOR_OLLAMA: "ELEVENLABS_VOICE_ID_OLLAMA",
     MOTOR_GEMINI: "ELEVENLABS_VOICE_ID_GEMINI",
 }
+
+
+_EMOJIS = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF️‍]")
+_ENLACES = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_MARCAS_INICIO_LINEA = re.compile(r"^\s*(?:- \[[ x]\]\s*|#+\s*|[-*•]\s+|\d+[.)]\s+)", re.MULTILINE)
+_SIMBOLOS_MARKDOWN = re.compile(r"[*_`#>|]")
+
+
+def limpiar_para_voz(texto: str) -> str:
+    """Quita markdown, viñetas y emojis: la voz los leía en voz alta, símbolo por símbolo."""
+    texto = _ENLACES.sub(r"\1", texto)
+    texto = _MARCAS_INICIO_LINEA.sub("", texto)
+    texto = _SIMBOLOS_MARKDOWN.sub("", texto)
+    texto = _EMOJIS.sub("", texto)
+    return re.sub(r"\s+", " ", texto).strip()
 
 
 def _elegir_voz(motor: str | None) -> str:
@@ -44,6 +60,10 @@ def hablar(texto: str, motor: str | None = None) -> None:
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
         print(f"[aviso] Falta ELEVENLABS_API_KEY, no se puede reproducir audio.\n{texto}")
+        return
+
+    texto = limpiar_para_voz(texto)
+    if not texto:
         return
 
     voz = _elegir_voz(motor)

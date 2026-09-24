@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import flet as ft
 
+from src.agente.conversacion import Conversacion
 from src.main import procesar_comando
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA, nombre_motor
 from src.voice.stt import Grabadora, transcribir
@@ -127,6 +128,8 @@ class JarvisApp:
         self.page = page
         self.agente = MOTOR_ACCION
         self.grabadora = Grabadora()
+        # Una sola conversación compartida por Voz y Chat: son la misma charla.
+        self.conversacion = Conversacion()
         self.ocupado = False
 
         self.orbe = Orbe(self.agente)
@@ -350,7 +353,12 @@ class JarvisApp:
             self._agregar_al_historial("Tú", texto, COLOR_USUARIO)
             self.page.update()
 
-            respuesta = procesar_comando(texto, confirmador=self.confirmador_ui, motor_forzado=self._motor_forzado())
+            respuesta = procesar_comando(
+                texto,
+                confirmador=self.confirmador_ui,
+                motor_forzado=self._motor_forzado(),
+                conversacion=self.conversacion,
+            )
 
             motor_mostrado = self._motor_mostrado(respuesta.motor)
             paleta = PALETAS.get(motor_mostrado, self._paleta_actual())
@@ -384,7 +392,12 @@ class JarvisApp:
 
     def _procesar_chat(self, texto: str) -> None:
         try:
-            respuesta = procesar_comando(texto, confirmador=self.confirmador_ui, motor_forzado=self._motor_forzado())
+            respuesta = procesar_comando(
+                texto,
+                confirmador=self.confirmador_ui,
+                motor_forzado=self._motor_forzado(),
+                conversacion=self.conversacion,
+            )
             motor_mostrado = self._motor_mostrado(respuesta.motor)
             paleta = PALETAS.get(motor_mostrado, self._paleta_actual())
             self._agregar_al_historial(nombre_motor(motor_mostrado), respuesta.texto, paleta.principal)

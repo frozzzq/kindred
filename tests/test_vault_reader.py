@@ -1,4 +1,6 @@
-from src.obsidian.vault_reader import buscar_en_boveda, leer_nota, listar_notas
+import pytest
+
+from src.obsidian.vault_reader import buscar_en_boveda, leer_nota, listar_notas, resolver_ruta
 
 
 def test_listar_notas_encuentra_md_e_ignora_config_obsidian(tmp_path, monkeypatch):
@@ -49,3 +51,30 @@ def test_buscar_en_boveda_sin_bovedas_devuelve_vacio(tmp_path, monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path / "no-existe"))
 
     assert buscar_en_boveda("cualquier cosa") == []
+
+
+def test_buscar_en_boveda_ignora_el_log_de_conversaciones(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    (tmp_path / "00-Sistema").mkdir()
+    (tmp_path / "00-Sistema" / "Logs-Interacciones.md").write_text("comprar leche comprar leche", encoding="utf-8")
+
+    assert buscar_en_boveda("comprar leche") == []
+
+
+def test_resolver_ruta_rechaza_rutas_fuera_de_la_boveda(tmp_path, monkeypatch):
+    boveda = tmp_path / "boveda"
+    boveda.mkdir()
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(boveda))
+
+    with pytest.raises(ValueError):
+        resolver_ruta("../secreto.txt")
+
+
+def test_leer_nota_rechaza_rutas_fuera_de_la_boveda(tmp_path, monkeypatch):
+    boveda = tmp_path / "boveda"
+    boveda.mkdir()
+    (tmp_path / "secreto.md").write_text("no deberías leer esto", encoding="utf-8")
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(boveda))
+
+    with pytest.raises(ValueError):
+        leer_nota("../secreto.md")

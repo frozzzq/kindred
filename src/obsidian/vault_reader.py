@@ -1,7 +1,7 @@
-"""Lectura y busqueda simple sobre la boveda de Obsidian.
+"""Lectura y búsqueda sobre la bóveda de Obsidian.
 
-Fase 2: busqueda por coincidencia de palabras clave. Se puede mejorar a
-embeddings mas adelante sin cambiar la interfaz publica de este modulo.
+La búsqueda es por coincidencia de palabras clave. Se puede mejorar a
+embeddings más adelante sin cambiar la interfaz pública de este módulo.
 """
 
 from dataclasses import dataclass
@@ -11,7 +11,29 @@ from src.obsidian.config import ruta_boveda
 
 CARPETA_CONFIG_OBSIDIAN = ".obsidian"
 LONGITUD_MINIMA_PALABRA = 4
-CONTEXTO_FRAGMENTO = 80
+CONTEXTO_FRAGMENTO = 150
+
+# El log de conversaciones contiene todo lo que se ha dicho, así que ganaba
+# casi cualquier búsqueda y le metía al agente fragmentos de charlas viejas.
+# Se sigue usando para métricas, pero no como fuente de conocimiento.
+EXCLUIDAS_DE_BUSQUEDA = ("00-Sistema/Logs-Interacciones.md",)
+
+
+def resolver_ruta(ruta_relativa: str) -> Path:
+    """Ruta absoluta dentro de la bóveda; rechaza rutas que intenten salir de ella.
+
+    Las rutas pueden venir del modelo (herramienta leer_nota), así que no se
+    confía en ellas: "../../algo" o una ruta absoluta se rechazan.
+    """
+    boveda = ruta_boveda().resolve()
+    ruta = (boveda / ruta_relativa).resolve()
+    if not ruta.is_relative_to(boveda):
+        raise ValueError(f"La ruta '{ruta_relativa}' está fuera de la bóveda")
+    return ruta
+
+
+def _relativa(ruta: Path) -> str:
+    return ruta.relative_to(ruta_boveda()).as_posix()
 
 
 def listar_notas() -> list[Path]:
@@ -19,16 +41,21 @@ def listar_notas() -> list[Path]:
     boveda = ruta_boveda()
     if not boveda.exists():
         return []
-    return [
+    return sorted(
         ruta for ruta in boveda.rglob("*.md")
         if CARPETA_CONFIG_OBSIDIAN not in ruta.parts
-    ]
+    )
+
+
+def listar_rutas_relativas() -> list[str]:
+    """Rutas de todas las notas, relativas a la bóveda y con '/' (ej. '02-Tareas/Pendientes.md')."""
+    return [_relativa(ruta) for ruta in listar_notas()]
 
 
 def leer_nota(ruta_relativa: str) -> str | None:
     """Lee el contenido de una nota dada su ruta relativa a la bóveda."""
-    ruta = ruta_boveda() / ruta_relativa
-    if not ruta.exists():
+    ruta = resolver_ruta(ruta_relativa)
+    if not ruta.is_file():
         return None
     return ruta.read_text(encoding="utf-8")
 
@@ -46,10 +73,11 @@ def buscar_en_boveda(texto: str, max_resultados: int = 3) -> list[ResultadoBusqu
     if not palabras:
         return []
 
-    boveda = ruta_boveda()
     resultados: list[ResultadoBusqueda] = []
-
     for ruta in listar_notas():
+        relativa = _relativa(ruta)
+        if relativa in EXCLUIDAS_DE_BUSQUEDA:
+            continue
         contenido = ruta.read_text(encoding="utf-8", errors="ignore")
         contenido_normalizado = contenido.lower()
         coincidencias = sum(1 for palabra in palabras if palabra in contenido_normalizado)
@@ -57,7 +85,7 @@ def buscar_en_boveda(texto: str, max_resultados: int = 3) -> list[ResultadoBusqu
             continue
         resultados.append(
             ResultadoBusqueda(
-                ruta_relativa=str(ruta.relative_to(boveda)),
+                ruta_relativa=relativa,
                 fragmento=_extraer_fragmento(contenido, palabras),
                 coincidencias=coincidencias,
             )
