@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from src.actions.busqueda_web import construir_contexto_web
 from src.actions.confirmacion import Confirmador, confirmar_por_texto
 from src.actions.system_control import abrir_aplicacion
 from src.engines.gemini_client import preguntar_gemini
@@ -59,6 +60,14 @@ def procesar_comando(texto: str, confirmador: Confirmador = confirmar_por_texto)
             evaluar_guardado(texto, respuesta.texto, MOTOR_GEMINI)
             return Respuesta(texto=respuesta.texto, motor=MOTOR_GEMINI)
         print(f"[aviso] Gemini falló ({respuesta.error}), usando Ollama como fallback...")
+
+    if es_busqueda_web(texto):
+        # Ollama no tiene acceso a internet nativo (a diferencia de Gemini,
+        # que usa su propio grounding); le damos resultados reales como
+        # contexto auxiliar, típico cuando Gemini falló y cayó aquí.
+        contexto_web = construir_contexto_web(texto)
+        if contexto_web:
+            prompt = f"{prompt}\n\n{contexto_web}"
 
     respuesta = preguntar_ollama(prompt)
     if respuesta.exito:

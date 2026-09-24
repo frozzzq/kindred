@@ -42,6 +42,36 @@ def test_fallback_a_ollama_si_gemini_falla(mock_gemini, mock_ollama, mock_contex
     assert resultado == Respuesta(texto="respuesta de respaldo", motor=MOTOR_OLLAMA)
 
 
+@patch("src.main.construir_contexto_web", return_value="Resultados de una búsqueda real...")
+@patch("src.main.evaluar_guardado")
+@patch("src.main.construir_contexto", return_value="")
+@patch("src.main.preguntar_ollama")
+@patch("src.main.preguntar_gemini")
+def test_ollama_recibe_contexto_web_cuando_gemini_falla_en_busqueda(
+    mock_gemini, mock_ollama, mock_contexto, mock_guardado, mock_contexto_web
+):
+    mock_gemini.return_value = RespuestaMotor(exito=False, error="sin facturación")
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="respuesta con contexto web")
+
+    procesar_comando("busca en internet el clima")
+
+    mock_contexto_web.assert_called_once_with("busca en internet el clima")
+    prompt_enviado = mock_ollama.call_args.args[0]
+    assert "Resultados de una búsqueda real..." in prompt_enviado
+
+
+@patch("src.main.construir_contexto_web")
+@patch("src.main.evaluar_guardado")
+@patch("src.main.construir_contexto", return_value="")
+@patch("src.main.preguntar_ollama")
+def test_ollama_no_busca_web_en_comandos_simples(mock_ollama, mock_contexto, mock_guardado, mock_contexto_web):
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="respuesta ollama")
+
+    procesar_comando("recuérdame comprar leche")
+
+    mock_contexto_web.assert_not_called()
+
+
 @patch("src.main.evaluar_guardado")
 @patch("src.main.abrir_aplicacion")
 def test_abrir_app_confirmada_ejecuta_la_accion(mock_abrir, mock_guardado):

@@ -60,6 +60,13 @@ conocimiento estático. **Toda acción (abrir una app) pide confirmación
 explícita antes de ejecutarse** — por texto en el CLI de texto, por voz
 ("di sí o no") en el CLI de voz.
 
+**Búsqueda web auxiliar para Ollama:** Ollama no tiene acceso nativo a
+internet (a diferencia de Gemini). Cuando un comando de búsqueda termina
+respondiéndolo Ollama (router lo eligió, o Gemini falló y cayó aquí como
+fallback — el caso típico sin facturación configurada en Gemini), se le
+inyectan resultados reales de DuckDuckGo (`src/actions/busqueda_web.py`,
+sin API key ni costo) como contexto adicional.
+
 ### Tests
 
 ```bash
