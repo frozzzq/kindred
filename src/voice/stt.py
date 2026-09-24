@@ -49,6 +49,41 @@ def grabar_hasta_enter() -> np.ndarray:
         return np.concatenate(bloques, axis=0).flatten()
 
 
+class Grabadora:
+    """Grabación que se inicia y detiene desde fuera (ej. un botón de UI que se toca dos veces)."""
+
+    def __init__(self) -> None:
+        self._bloques: list[np.ndarray] = []
+        self._bloqueo = threading.Lock()
+        self._stream: sd.InputStream | None = None
+
+    @property
+    def grabando(self) -> bool:
+        return self._stream is not None
+
+    def iniciar(self) -> None:
+        with self._bloqueo:
+            self._bloques = []
+
+        def callback(datos_entrada, frames, tiempo, estado):
+            with self._bloqueo:
+                self._bloques.append(datos_entrada.copy())
+
+        self._stream = sd.InputStream(samplerate=TASA_MUESTREO, channels=1, dtype="float32", callback=callback)
+        self._stream.start()
+
+    def detener(self) -> np.ndarray:
+        if self._stream is None:
+            return np.zeros(0, dtype="float32")
+        self._stream.stop()
+        self._stream.close()
+        self._stream = None
+        with self._bloqueo:
+            if not self._bloques:
+                return np.zeros(0, dtype="float32")
+            return np.concatenate(self._bloques, axis=0).flatten()
+
+
 def grabar_hasta_silencio() -> np.ndarray:
     """Graba automáticamente: empieza a contar al detectar voz, para tras un silencio."""
     bloques: list[np.ndarray] = []

@@ -61,19 +61,22 @@ def es_busqueda_web(texto: str) -> bool:
 
 
 def extraer_nombre_app(texto: str) -> str | None:
-    """Si el texto es un comando de "abrir <app>", devuelve el nombre de la app.
+    """Si el texto contiene un comando de "abrir <app>", devuelve el nombre de la app.
 
-    Devuelve None si el texto no empieza con un prefijo de apertura
-    ("abre "/"abrir "), para no interceptar comandos que no son de este tipo.
-    Quita signos de puntuación sueltos (Whisper suele agregar puntos o
-    signos de exclamación al transcribir).
+    Busca "abre "/"abrir " en cualquier parte del texto (no solo al inicio),
+    para reconocerlo aunque venga precedido de un saludo o el nombre del
+    motor (ej. "Hey Crimson, abre calculadora"). Devuelve None si no
+    aparece. Quita signos de puntuación sueltos (Whisper suele agregar
+    puntos o signos de exclamación al transcribir).
     """
     texto_normalizado = texto.strip(SIGNOS_A_QUITAR).lower()
     for prefijo in PREFIJOS_ABRIR:
-        if texto_normalizado.startswith(prefijo):
-            resto = texto_normalizado[len(prefijo):].strip(SIGNOS_A_QUITAR)
-            for articulo in ARTICULOS:
-                if resto.startswith(articulo):
-                    resto = resto[len(articulo):].strip(SIGNOS_A_QUITAR)
-            return resto or None
+        indice = texto_normalizado.find(prefijo)
+        if indice == -1:
+            continue
+        resto = texto_normalizado[indice + len(prefijo):].strip(SIGNOS_A_QUITAR)
+        for articulo in ARTICULOS:
+            if resto.startswith(articulo):
+                resto = resto[len(articulo):].strip(SIGNOS_A_QUITAR)
+        return resto or None
     return None

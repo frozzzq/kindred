@@ -38,6 +38,11 @@ def test_extraer_nombre_app_quita_puntuacion_de_whisper():
     assert extraer_nombre_app("¡Abre paint!") == "paint"
 
 
+def test_extraer_nombre_app_con_saludo_antes():
+    assert extraer_nombre_app("Hey Crimson, abre calculadora.") == "calculadora"
+    assert extraer_nombre_app("Oye Clover, podrías abrir spotify") == "spotify"
+
+
 def test_es_busqueda_web_detecta_palabra_clave():
     assert es_busqueda_web("busca el clima de hoy") is True
 

@@ -40,8 +40,17 @@ class Respuesta:
     motor: str
 
 
-def procesar_comando(texto: str, confirmador: Confirmador = confirmar_por_texto) -> Respuesta:
-    """Decide qué hacer con el texto: acción directa, o motor (con contexto de la bóveda)."""
+def procesar_comando(
+    texto: str,
+    confirmador: Confirmador = confirmar_por_texto,
+    motor_forzado: str | None = None,
+) -> Respuesta:
+    """Decide qué hacer con el texto: acción directa, o motor (con contexto de la bóveda).
+
+    motor_forzado (MOTOR_OLLAMA/MOTOR_GEMINI) salta el router, para cuando el
+    usuario elige el agente a mano; None deja que el router decida. Las
+    acciones (abrir apps) se detectan igual en cualquier caso.
+    """
     nombre_app = extraer_nombre_app(texto)
     if nombre_app:
         if confirmador(f"¿Confirmas que abra '{nombre_app}'?"):
@@ -53,7 +62,7 @@ def procesar_comando(texto: str, confirmador: Confirmador = confirmar_por_texto)
         evaluar_guardado(texto, resultado.mensaje, MOTOR_ACCION)
         return Respuesta(texto=resultado.mensaje, motor=MOTOR_ACCION)
 
-    motor = decidir_motor(texto)
+    motor = motor_forzado or decidir_motor(texto)
     contexto = construir_contexto(texto)
     prompt = f"{contexto}\n\n{texto}" if contexto else texto
 

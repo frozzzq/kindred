@@ -8,12 +8,13 @@ Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
 Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 (completa, con wake
-word) + Fase 4 (parcial) + Fase 5 (parcial)** (scaffold, MVP por CLI de
-texto con Ollama/Gemini, integración con una bóveda de Obsidian como
-memoria, voz con Whisper local + ElevenLabs — push-to-talk o manos libres
-con wake word "hey jarvis" —, control del sistema: abrir aplicaciones y
-búsqueda web con confirmación obligatoria, y métricas de uso). Sin
-clicks/escritura automática, correo/redes sociales, ni UI todavía.
+word) + Fase 4 (parcial) + Fase 5 (parcial) + UI de escritorio**
+(scaffold, MVP por CLI de texto con Ollama/Gemini, integración con una
+bóveda de Obsidian como memoria, voz con Whisper local + ElevenLabs —
+push-to-talk o manos libres con wake word "hey jarvis" —, control del
+sistema: abrir aplicaciones y búsqueda web con confirmación obligatoria,
+métricas de uso, y una UI de escritorio con Flet). Sin clicks/escritura
+automática ni correo/redes sociales todavía.
 
 ### Setup
 
@@ -92,6 +93,24 @@ y reporta qué % de las respuestas resolvió cada motor, más la tasa de
 éxito real de Gemini (cuenta también sus fallos, no solo cuando cae a
 Ollama) — útil para decidir si vale la pena ajustar las palabras clave del
 router según el uso real.
+
+**UI de escritorio:**
+```bash
+python -m src.main_ui
+```
+Ventana con [Flet](https://flet.dev) (renderiza con Flutter, sin HTML/JS
+ni servidor separado), con dos apartados en la barra inferior:
+
+- **Voz:** el agente elegido aparece como un orbe animado en el centro
+  (Crimson carmesí, Clover violeta, Jarvis azul). Toca el micrófono para
+  empezar a hablar y otra vez para terminar. Cuando el agente responde, el
+  orbe brilla con el color de quien realmente habló.
+- **Chat:** conversación por texto (incluye también lo dicho por voz).
+
+Arriba se elige el agente a mano: **Crimson** siempre usa Ollama,
+**Clover** siempre usa Gemini (con fallback a Ollama si falla) y
+**Jarvis** deja que el router decida. Abrir apps funciona con cualquiera,
+siempre con diálogo de confirmación.
 
 ### Tests
 

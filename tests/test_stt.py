@@ -41,6 +41,28 @@ def test_grabar_hasta_silencio_para_tras_hablar_y_callar(mock_input_stream):
     assert audio.size > 0
 
 
+@patch("src.voice.stt.sd.InputStream")
+def test_grabadora_inicia_y_detiene_devolviendo_el_audio(mock_input_stream):
+    grabadora = stt.Grabadora()
+    grabadora.iniciar()
+    assert grabadora.grabando is True
+
+    callback = mock_input_stream.call_args.kwargs["callback"]
+    callback(np.full((1600, 1), 0.5, dtype="float32"), 1600, None, None)
+    callback(np.full((1600, 1), 0.2, dtype="float32"), 1600, None, None)
+
+    audio = grabadora.detener()
+
+    assert grabadora.grabando is False
+    assert audio.shape == (3200,)
+    mock_input_stream.return_value.stop.assert_called_once()
+    mock_input_stream.return_value.close.assert_called_once()
+
+
+def test_grabadora_detener_sin_iniciar_devuelve_vacio():
+    assert stt.Grabadora().detener().size == 0
+
+
 @patch("src.voice.stt.transcribir", return_value="hola")
 @patch("src.voice.stt.grabar_hasta_silencio")
 def test_escuchar_comando_automatico_graba_y_transcribe(mock_grabar, mock_transcribir):

@@ -8,5 +8,7 @@ sounddevice>=0.4
 numpy>=1.26
 playsound3>=2.2
 openwakeword>=0.6
+flet>=1.0
+flet-desktop>=1.0
 
 pytest>=8.0

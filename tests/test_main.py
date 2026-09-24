@@ -60,6 +60,44 @@ def test_fallo_de_gemini_se_registra_para_metricas(
     )
 
 
+@patch("src.main.evaluar_guardado")
+@patch("src.main.construir_contexto", return_value="")
+@patch("src.main.construir_contexto_web", return_value="")
+@patch("src.main.preguntar_ollama")
+@patch("src.main.preguntar_gemini")
+def test_motor_forzado_ollama_salta_el_router(mock_gemini, mock_ollama, mock_web, mock_contexto, mock_guardado):
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="respuesta de crimson")
+
+    resultado = procesar_comando("busca en internet el clima", motor_forzado=MOTOR_OLLAMA)
+
+    mock_gemini.assert_not_called()
+    assert resultado == Respuesta(texto="respuesta de crimson", motor=MOTOR_OLLAMA)
+
+
+@patch("src.main.evaluar_guardado")
+@patch("src.main.construir_contexto", return_value="")
+@patch("src.main.preguntar_ollama")
+@patch("src.main.preguntar_gemini")
+def test_motor_forzado_gemini_en_comando_simple(mock_gemini, mock_ollama, mock_contexto, mock_guardado):
+    mock_gemini.return_value = RespuestaMotor(exito=True, texto="respuesta de clover")
+
+    resultado = procesar_comando("recuérdame comprar leche", motor_forzado=MOTOR_GEMINI)
+
+    mock_ollama.assert_not_called()
+    assert resultado == Respuesta(texto="respuesta de clover", motor=MOTOR_GEMINI)
+
+
+@patch("src.main.evaluar_guardado")
+@patch("src.main.abrir_aplicacion")
+def test_motor_forzado_no_impide_abrir_apps(mock_abrir, mock_guardado):
+    mock_abrir.return_value = ResultadoAccion(exito=True, mensaje="Abriendo paint...")
+
+    resultado = procesar_comando("abre paint", confirmador=lambda d: True, motor_forzado=MOTOR_GEMINI)
+
+    mock_abrir.assert_called_once_with("paint")
+    assert resultado.motor == MOTOR_ACCION
+
+
 @patch("src.main.construir_contexto_web", return_value="Resultados de una búsqueda real...")
 @patch("src.main.evaluar_guardado")
 @patch("src.main.construir_contexto", return_value="")
