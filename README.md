@@ -7,13 +7,12 @@ Asistentes IA para uso personal.
 Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
-Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 (parcial)**
-(scaffold, MVP por CLI de texto con Ollama/Gemini, integración con una
-bóveda de Obsidian como memoria, voz con Whisper local + ElevenLabs en
-modo push-to-talk, y control del sistema: abrir aplicaciones y búsqueda
-web real con Gemini, ambos con confirmación obligatoria antes de
-ejecutar). Sin wake word, clicks/escritura automática, ni correo/redes
-sociales todavía.
+Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 (parcial) +
+Fase 5 (parcial)** (scaffold, MVP por CLI de texto con Ollama/Gemini,
+integración con una bóveda de Obsidian como memoria, voz con Whisper local
++ ElevenLabs en modo push-to-talk, control del sistema: abrir aplicaciones
+y búsqueda web con confirmación obligatoria, y métricas de uso). Sin wake
+word, clicks/escritura automática, correo/redes sociales, ni UI todavía.
 
 ### Setup
 
@@ -66,6 +65,16 @@ respondiéndolo Ollama (router lo eligió, o Gemini falló y cayó aquí como
 fallback — el caso típico sin facturación configurada en Gemini), se le
 inyectan resultados reales de DuckDuckGo (`src/actions/busqueda_web.py`,
 sin API key ni costo) como contexto adicional.
+
+**Métricas de uso (Fase 5):**
+```bash
+python -m src.main_metricas
+```
+Lee el log de interacciones ya guardado en la bóveda (`00-Sistema/Logs-Interacciones.md`)
+y reporta qué % de las respuestas resolvió cada motor, más la tasa de
+éxito real de Gemini (cuenta también sus fallos, no solo cuando cae a
+Ollama) — útil para decidir si vale la pena ajustar las palabras clave del
+router según el uso real.
 
 ### Tests
 

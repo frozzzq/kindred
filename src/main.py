@@ -14,9 +14,11 @@ from src.engines.gemini_client import preguntar_gemini
 from src.engines.ollama_client import preguntar_ollama
 from src.obsidian.contexto import construir_contexto, evaluar_guardado
 from src.obsidian.estructura import asegurar_estructura_boveda
+from src.obsidian.vault_writer import registrar_interaccion
 from src.router.intent_router import (
     MOTOR_ACCION,
     MOTOR_GEMINI,
+    MOTOR_GEMINI_FALLO,
     MOTOR_OLLAMA,
     decidir_motor,
     es_busqueda_web,
@@ -60,6 +62,10 @@ def procesar_comando(texto: str, confirmador: Confirmador = confirmar_por_texto)
             evaluar_guardado(texto, respuesta.texto, MOTOR_GEMINI)
             return Respuesta(texto=respuesta.texto, motor=MOTOR_GEMINI)
         print(f"[aviso] Gemini falló ({respuesta.error}), usando Ollama como fallback...")
+        try:
+            registrar_interaccion(texto, f"[fallo] {respuesta.error}", MOTOR_GEMINI_FALLO)
+        except RuntimeError:
+            pass  # sin bóveda configurada: no bloquea el flujo, solo no queda métrica de este fallo
 
     if es_busqueda_web(texto):
         # Ollama no tiene acceso a internet nativo (a diferencia de Gemini,

@@ -13,6 +13,7 @@ búsqueda web se marca aparte para activar el grounding de Gemini.
 MOTOR_OLLAMA = "ollama"
 MOTOR_GEMINI = "gemini"
 MOTOR_ACCION = "accion"
+MOTOR_GEMINI_FALLO = "gemini_fallo"  # se registra cuando Gemini fue intentado pero falló (Fase 5: métricas)
 
 PALABRAS_CLAVE_BUSQUEDA_WEB = ("busca", "buscar", "internet", "investiga")
 

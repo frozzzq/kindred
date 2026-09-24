@@ -3,7 +3,7 @@ from unittest.mock import patch
 from src.actions.system_control import ResultadoAccion
 from src.engines.modelos import RespuestaMotor
 from src.main import Respuesta, procesar_comando
-from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
+from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_GEMINI_FALLO, MOTOR_OLLAMA
 
 
 @patch("src.main.evaluar_guardado")
@@ -40,6 +40,24 @@ def test_fallback_a_ollama_si_gemini_falla(mock_gemini, mock_ollama, mock_contex
     resultado = procesar_comando("busca en internet el clima")
 
     assert resultado == Respuesta(texto="respuesta de respaldo", motor=MOTOR_OLLAMA)
+
+
+@patch("src.main.registrar_interaccion")
+@patch("src.main.evaluar_guardado")
+@patch("src.main.construir_contexto", return_value="")
+@patch("src.main.preguntar_ollama")
+@patch("src.main.preguntar_gemini")
+def test_fallo_de_gemini_se_registra_para_metricas(
+    mock_gemini, mock_ollama, mock_contexto, mock_guardado, mock_registrar
+):
+    mock_gemini.return_value = RespuestaMotor(exito=False, error="sin facturación")
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="respuesta de respaldo")
+
+    procesar_comando("busca en internet el clima")
+
+    mock_registrar.assert_called_once_with(
+        "busca en internet el clima", "[fallo] sin facturación", MOTOR_GEMINI_FALLO
+    )
 
 
 @patch("src.main.construir_contexto_web", return_value="Resultados de una búsqueda real...")
