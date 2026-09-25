@@ -163,15 +163,29 @@ Ventana con [Flet](https://flet.dev) (renderiza con Flutter, sin HTML/JS
 ni servidor separado), con dos apartados en la barra inferior:
 
 - **Voz:** el agente elegido aparece como un orbe animado en el centro
-  (Crimson carmesí, Clover violeta, Jarvis azul). Toca el micrófono para
-  empezar a hablar y otra vez para terminar. Cuando el agente responde, el
-  orbe brilla con el color de quien realmente habló.
+  (Crimson carmesí, Clover violeta, Jarvis azul). Cuando el agente
+  responde, el orbe brilla con el color de quien realmente habló.
+  - **Activación por nombre** (interruptor, encendido por defecto): di
+    "Crimson", "Clover" o "Jarvis" (solo o seguido de lo que quieres, ej.
+    "Crimson, ¿qué pendientes tengo?"). Eso abre una **ventana de
+    conversación de 1 minuto**: mientras sigas hablando no hace falta
+    repetir el nombre, y cada frase reinicia el minuto. Tras un minuto en
+    silencio hay que volver a llamarlo. Decir otro nombre le pasa la
+    palabra a ese agente. El orbe brilla un poco más mientras la ventana
+    está abierta, y el estado muestra los segundos que quedan.
+  - El nombre lo detecta Whisper (escucha continua + tolerancia a errores
+    de transcripción como "Yarvis"/"Grimson"), así que usa algo de CPU y
+    puede activarse si mencionas el nombre en una plática.
+  - Mientras el agente piensa y habla, la escucha se pausa (si no, se
+    oiría a sí mismo y se contestaría en bucle). Las confirmaciones
+    (abrir apps) se responden por voz: "sí" o "no".
+  - El micrófono manual sigue disponible: tocar para empezar, tocar para
+    terminar.
 - **Chat:** conversación por texto (incluye también lo dicho por voz).
 
-Arriba se elige el agente a mano: **Crimson** siempre usa Ollama,
-**Clover** siempre usa Gemini (con fallback a Ollama si falla) y
-**Jarvis** deja que el router decida. Abrir apps funciona con cualquiera,
-siempre con diálogo de confirmación.
+Arriba se elige el agente a mano (o diciendo su nombre): **Crimson**
+siempre usa Ollama, **Clover** siempre usa Gemini (con fallback a Ollama si
+falla) y **Jarvis** deja que el router decida.
 
 ### Tests
 
