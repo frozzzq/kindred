@@ -12,6 +12,7 @@ from src.actions.confirmacion import Confirmador, confirmar_por_texto
 from src.actions.system_control import abrir_aplicacion
 from src.agente.conversacion import Conversacion
 from src.agente.personalidad import construir_prompt_sistema, quitar_muletilla_final
+from src.agente.reflexion import aprender_si_quedo_sin_guardar
 from src.consola import forzar_utf8
 from src.engines.gemini_client import preguntar_gemini
 from src.engines.ollama_client import conversar_ollama
@@ -49,9 +50,17 @@ class Respuesta:
     motor: str
 
 
-def _responder(texto: str, respuesta: str, motor: str, conversacion: Conversacion) -> Respuesta:
+def _responder(
+    texto: str,
+    respuesta: str,
+    motor: str,
+    conversacion: Conversacion,
+    herramientas_usadas: list[str] | None = None,
+) -> Respuesta:
     respuesta = quitar_muletilla_final(respuesta)
     evaluar_guardado(texto, respuesta, motor)
+    if motor != MOTOR_ACCION:
+        aprender_si_quedo_sin_guardar(texto, herramientas_usadas or [])
     conversacion.agregar_turno(texto, respuesta)
     return Respuesta(texto=respuesta, motor=motor)
 
@@ -125,7 +134,7 @@ def procesar_comando(
             # Mejor admitirlo que decirle al usuario que algo quedó guardado cuando no.
             respuesta.texto = "No logré hacer ese cambio en tu bóveda. ¿Me lo repites, por favor?"
     if respuesta.exito:
-        return _responder(texto, respuesta.texto, MOTOR_OLLAMA, conversacion)
+        return _responder(texto, respuesta.texto, MOTOR_OLLAMA, conversacion, respuesta.herramientas_usadas)
     return Respuesta(texto=f"[error] Ollama también falló: {respuesta.error}", motor=MOTOR_OLLAMA)
 
 
