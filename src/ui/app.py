@@ -396,9 +396,11 @@ class JarvisApp:
 
     def _al_escuchar_frase(self, audio) -> None:
         """Llega una frase de la escucha continua: ¿llamaron al agente o sigue abierta la ventana?"""
-        if self.ocupado or self.grabadora.grabando:
-            return
-        with self._turno:
+        if not self._turno.acquire(blocking=False):
+            return  # ya hay un turno en curso (esta misma escucha, el chat o el micrófono manual)
+        try:
+            if self.grabadora.grabando:
+                return
             texto = transcribir(audio, filtrar_ruido=True)
             if not texto:
                 return
@@ -412,6 +414,8 @@ class JarvisApp:
                 self.page.update()
                 return  # solo lo llamaron por su nombre: queda escuchando
             self._atender_voz(mensaje)
+        finally:
+            self._turno.release()
 
     def tocar_microfono(self, e) -> None:
         if self.ocupado:
@@ -434,12 +438,13 @@ class JarvisApp:
         threading.Thread(target=self._procesar_grabacion, args=(audio,), daemon=True).start()
 
     def _procesar_grabacion(self, audio) -> None:
-        texto = transcribir(audio)
-        if texto:
-            self._atender_voz(texto)
-            return
-        self._avisar("No te entendí, intenta de nuevo")
-        self._terminar_turno_de_voz()
+        with self._turno:
+            texto = transcribir(audio)
+            if texto:
+                self._atender_voz(texto)
+                return
+            self._avisar("No te entendí, intenta de nuevo")
+            self._terminar_turno_de_voz()
 
     def _atender_voz(self, texto: str) -> None:
         """Responde a lo dicho por voz (por el micrófono o llamando al agente por su nombre)."""
@@ -499,19 +504,22 @@ class JarvisApp:
         threading.Thread(target=self._procesar_chat, args=(texto,), daemon=True).start()
 
     def _procesar_chat(self, texto: str) -> None:
-        try:
-            respuesta = procesar_comando(
-                texto,
-                confirmador=self.confirmador_ui,
-                motor_forzado=self._motor_forzado(),
-                conversacion=self.conversacion,
-            )
-            motor_mostrado = self._motor_mostrado(respuesta.motor)
-            paleta = PALETAS.get(motor_mostrado, self._paleta_actual())
-            self._agregar_al_historial(nombre_motor(motor_mostrado), respuesta.texto, paleta.principal)
-        finally:
-            self.estado_chat.value = ""
-            self.page.update()
+        with self._turno:
+            self.ocupado = True
+            try:
+                respuesta = procesar_comando(
+                    texto,
+                    confirmador=self.confirmador_ui,
+                    motor_forzado=self._motor_forzado(),
+                    conversacion=self.conversacion,
+                )
+                motor_mostrado = self._motor_mostrado(respuesta.motor)
+                paleta = PALETAS.get(motor_mostrado, self._paleta_actual())
+                self._agregar_al_historial(nombre_motor(motor_mostrado), respuesta.texto, paleta.principal)
+            finally:
+                self.ocupado = False
+                self.estado_chat.value = ""
+                self.page.update()
 
 
 def construir_app(page: ft.Page) -> None:
