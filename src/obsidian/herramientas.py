@@ -108,9 +108,13 @@ IMPLEMENTACIONES: dict[str, Callable[..., str]] = {
 
 HERRAMIENTAS_DE_ESCRITURA = {"agregar_pendiente", "completar_pendiente", "recordar_sobre_usuario", "guardar_contacto"}
 
-# "He agregado", "anoté", "marqué como completada", "guardé", "añadí"...
+# "He agregado", "anoté", "marqué como completada", "guardé", "añadí"... y también las
+# formas naturales que se le piden al guardar un dato ("lo tendré presente"): si las dice
+# sin haber llamado la herramienta, está afirmando algo que no hizo (pasó en pruebas reales).
 _AFIRMA_CAMBIO = re.compile(
-    r"\b(agreg|añad|anot|guard|marc|complet|registr|elimin|borr)(ad[oa]s?|u?é|í)\b", re.IGNORECASE
+    r"\b(agreg|añad|anot|apunt|guard|marc|complet|registr|elimin|borr)(ad[oa]s?|u?é|í)\b"
+    r"|\blo tendré (presente|en cuenta)\b|\blo recordaré\b|\bno lo olvidaré\b",
+    re.IGNORECASE,
 )
 
 MENSAJE_VERIFICACION = (
