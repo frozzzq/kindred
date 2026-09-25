@@ -4,6 +4,10 @@ import os
 
 from src.engines.modelos import RespuestaMotor
 
+TIMEOUT_MS = 120_000  # mismo margen que Ollama (120s)
+REINTENTOS_TRANSITORIOS = 2
+CODIGOS_REINTENTABLES = (500, 502, 503, 504)  # NO incluye 429 (cuota): debe fallar rápido a Ollama
+
 
 def preguntar_gemini(
     prompt: str,
@@ -41,7 +45,18 @@ def preguntar_gemini(
     config = types.GenerateContentConfig(**opciones) if opciones else None
 
     try:
-        cliente = genai.Client(api_key=api_key)
+        cliente = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                timeout=TIMEOUT_MS,
+                retry_options=types.HttpRetryOptions(
+                    attempts=REINTENTOS_TRANSITORIOS + 1,
+                    initial_delay=0.5,
+                    max_delay=1.0,
+                    http_status_codes=CODIGOS_REINTENTABLES,
+                ),
+            ),
+        )
         respuesta = cliente.models.generate_content(model=modelo, contents=prompt, config=config)
     except Exception as error:  # noqa: BLE001 - cualquier fallo de la API cae a fallback, no debe crashear
         return RespuestaMotor(exito=False, error=f"Gemini falló: {error}")

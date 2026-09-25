@@ -11,6 +11,8 @@ def _mockear_google_genai(monkeypatch, cliente_mock):
     modulo_types.GenerateContentConfig = MagicMock(side_effect=lambda **kwargs: kwargs)
     modulo_types.Tool = MagicMock(side_effect=lambda **kwargs: kwargs)
     modulo_types.GoogleSearch = MagicMock(return_value="google-search-tool")
+    modulo_types.HttpOptions = MagicMock(side_effect=lambda **kwargs: kwargs)
+    modulo_types.HttpRetryOptions = MagicMock(side_effect=lambda **kwargs: kwargs)
 
     modulo_genai = types.ModuleType("google.genai")
     modulo_genai.Client = MagicMock(return_value=cliente_mock)
@@ -74,3 +76,21 @@ def test_sin_busqueda_web_config_es_none(monkeypatch):
 
     _args, kwargs = cliente_mock.models.generate_content.call_args
     assert kwargs["config"] is None
+
+
+def test_pasa_timeout_y_reintentos_al_cliente(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "clave-de-prueba")
+
+    cliente_mock = MagicMock()
+    cliente_mock.models.generate_content.return_value = types.SimpleNamespace(text="ok")
+    modulo_types = _mockear_google_genai(monkeypatch, cliente_mock)
+
+    preguntar_gemini("hola")
+
+    # Verificar que genai.Client fue llamado con http_options
+    _args, kwargs = modulo_types.HttpOptions.call_args
+    assert kwargs["timeout"] == 120_000
+    assert "retry_options" in kwargs
+    retry_args, retry_kwargs = modulo_types.HttpRetryOptions.call_args
+    assert retry_kwargs["http_status_codes"] == (500, 502, 503, 504)
+    assert retry_kwargs["attempts"] == 3  # REINTENTOS_TRANSITORIOS + 1
