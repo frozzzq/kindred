@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+import json
 import pytest
 
 from src.engines.ollama_client import MAX_RONDAS_HERRAMIENTAS, conversar_ollama, preguntar_ollama
@@ -202,11 +203,52 @@ def test_manda_keep_alive_para_no_descargar_el_modelo(mock_post):
     assert kwargs["json"]["keep_alive"] == "30m"
 
 
+@patch("src.engines.ollama_client.time.sleep")
 @patch("src.engines.ollama_client.httpx.post")
-def test_error_de_conexion_no_crashea(mock_post):
+def test_error_de_conexion_no_crashea(mock_post, mock_sleep):
     mock_post.side_effect = httpx.ConnectError("no se pudo conectar")
 
     resultado = preguntar_ollama("hola")
 
     assert resultado.exito is False
     assert resultado.error
+    assert mock_post.call_count == 3  # 1 intento original + 2 reintentos
+
+
+@patch("src.engines.ollama_client.httpx.post")
+def test_json_invalido_no_crashea(mock_post):
+    mock_respuesta = MagicMock()
+    mock_respuesta.json.side_effect = json.JSONDecodeError("msg", "doc", 0)
+    mock_respuesta.raise_for_status.return_value = None
+    mock_post.return_value = mock_respuesta
+
+    resultado = preguntar_ollama("hola")
+
+    assert resultado.exito is False
+    assert resultado.error
+    assert "JSON válido" in resultado.error
+
+
+@patch("src.engines.ollama_client.time.sleep")
+@patch("src.engines.ollama_client.httpx.post")
+def test_reintenta_tras_error_transitorio_y_luego_responde(mock_post, mock_sleep):
+    mock_post.side_effect = [httpx.ConnectError("timeout"), _respuesta_http({"response": "hola"})]
+
+    resultado = preguntar_ollama("hola")
+
+    assert resultado.exito is True
+    assert resultado.texto == "hola"
+    assert mock_post.call_count == 2
+    mock_sleep.assert_called_once_with(0.5)
+
+
+@patch("src.engines.ollama_client.httpx.post")
+def test_error_http_no_reintenta(mock_post):
+    respuesta = MagicMock()
+    respuesta.raise_for_status.side_effect = httpx.HTTPStatusError("x", request=MagicMock(), response=MagicMock(status_code=404))
+    mock_post.return_value = respuesta
+
+    resultado = preguntar_ollama("hola")
+
+    assert resultado.exito is False
+    assert mock_post.call_count == 1

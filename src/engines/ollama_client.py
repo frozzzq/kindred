@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 from collections.abc import Callable
 
 import httpx
@@ -12,6 +13,9 @@ from src.engines.modelos import RespuestaMotor
 # Una recarga en frío del modelo (~5-6GB a VRAM) llegó a tardar ~30s en
 # pruebas; 120s deja margen para eso más una respuesta larga.
 TIMEOUT_SEGUNDOS = 120
+# Reintentos ante errores de red transitorios (no para HTTPStatusError).
+REINTENTOS_TRANSITORIOS = 2
+ESPERA_ENTRE_REINTENTOS = (0.5, 1.0)
 # Ollama usa 4096 tokens de contexto por defecto aunque el modelo soporte
 # mucho más. Con el prompt de sistema + historial + notas leídas, 8192 da
 # margen real sin arriesgar la VRAM disponible.
@@ -45,15 +49,22 @@ def _enviar(endpoint: str, cuerpo: dict) -> dict | RespuestaMotor:
     """POST a Ollama. Devuelve el JSON de respuesta, o un RespuestaMotor de error."""
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     url = f"{host.rstrip('/')}/api/{endpoint}"
+    for intento in range(REINTENTOS_TRANSITORIOS + 1):
+        try:
+            respuesta = httpx.post(url, json=cuerpo, timeout=TIMEOUT_SEGUNDOS)
+            respuesta.raise_for_status()
+            break
+        except httpx.RequestError as error:
+            if intento == REINTENTOS_TRANSITORIOS:
+                return RespuestaMotor(exito=False, error=f"No se pudo conectar a Ollama en {url}: {error}")
+            time.sleep(ESPERA_ENTRE_REINTENTOS[intento])
+        except httpx.HTTPStatusError as error:
+            codigo = error.response.status_code
+            return RespuestaMotor(exito=False, error=f"Ollama respondió con error {codigo}")
     try:
-        respuesta = httpx.post(url, json=cuerpo, timeout=TIMEOUT_SEGUNDOS)
-        respuesta.raise_for_status()
-    except httpx.RequestError as error:
-        return RespuestaMotor(exito=False, error=f"No se pudo conectar a Ollama en {url}: {error}")
-    except httpx.HTTPStatusError as error:
-        codigo = error.response.status_code
-        return RespuestaMotor(exito=False, error=f"Ollama respondió con error {codigo}")
-    return respuesta.json()
+        return respuesta.json()
+    except json.JSONDecodeError as error:
+        return RespuestaMotor(exito=False, error=f"Ollama devolvió una respuesta que no es JSON válido: {error}")
 
 
 def _modelo() -> str:
