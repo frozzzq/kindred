@@ -127,12 +127,22 @@ def grabar_hasta_silencio() -> np.ndarray:
         return np.concatenate(bloques, axis=0).flatten()
 
 
-def transcribir(audio: np.ndarray) -> str:
-    """Transcribe un array de audio (mono, 16kHz, float32) a texto en español."""
+PROBABILIDAD_MAXIMA_SIN_VOZ = 0.6
+
+
+def transcribir(audio: np.ndarray, filtrar_ruido: bool = False) -> str:
+    """Transcribe un array de audio (mono, 16kHz, float32) a texto en español.
+
+    filtrar_ruido=True es para la escucha continua: ahí llega también ruido
+    de fondo, y Whisper tiende a "alucinar" frases a partir de él. Se usa su
+    detector de voz y se descartan los segmentos que probablemente no son voz.
+    """
     if audio.size == 0:
         return ""
     modelo = _obtener_modelo()
-    segmentos, _info = modelo.transcribe(audio, language="es")
+    segmentos, _info = modelo.transcribe(audio, language="es", vad_filter=filtrar_ruido)
+    if filtrar_ruido:
+        segmentos = [s for s in segmentos if s.no_speech_prob < PROBABILIDAD_MAXIMA_SIN_VOZ]
     return " ".join(segmento.text.strip() for segmento in segmentos).strip()
 
 
