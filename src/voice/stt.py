@@ -19,7 +19,9 @@ TASA_MUESTREO = 16000
 TAMANO_MODELO = "base"
 
 TAMANO_BLOQUE = 1600  # 100 ms a 16kHz
-UMBRAL_RMS_VOZ = 0.02
+# Threshold de energía RMS para detectar voz (no ruido amplificado).
+# 0.02 es muy bajo si hay ganancia del micrófono aplicada; 0.04 es más robusto.
+UMBRAL_RMS_VOZ = 0.04
 BLOQUES_SILENCIO_PARA_PARAR = 12  # ~1.2s de silencio tras haber hablado
 DURACION_MAXIMA_SEGUNDOS = 15
 

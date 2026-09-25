@@ -16,9 +16,27 @@ from src.obsidian.vault_writer import normalizar
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
 
 NOMBRES = {"crimson": MOTOR_OLLAMA, "clover": MOTOR_GEMINI, "jarvis": MOTOR_ACCION}
-# Cómo transcribe Whisper los nombres a veces (visto en los logs reales: "Yervis").
-VARIANTES = {"yervis": "jarvis", "yarvis": "jarvis", "jarbis": "jarvis", "yarbis": "jarvis", "llervis": "jarvis"}
-SIMILITUD_MINIMA = 0.8  # "grimson"/"crimsom" sí; "crimen" no
+# Cómo transcribe Whisper los nombres a veces (visto en los logs reales y esperado).
+# Variantes comunes para cada nombre según errores de STT observados.
+VARIANTES = {
+    # Crimson
+    "crimsen": "crimson",
+    "crimson": "crimson",  # redundante pero explícito
+    "crimsom": "crimson",
+    "grimson": "crimson",  # error común de transcripción
+    # Clover
+    "cloba": "clover",
+    "clover": "clover",
+    "klovar": "clover",
+    "clova": "clover",
+    # Jarvis
+    "yervis": "jarvis",
+    "yarvis": "jarvis",
+    "jarbis": "jarvis",
+    "yarbis": "jarvis",
+    "llervis": "jarvis",
+}
+SIMILITUD_MINIMA = 0.80  # "crimson"/"crimsen" sí; "crimen" no (0.67 < 0.80)
 DURACION_VENTANA_SEGUNDOS = 60.0
 _MULETILLAS_DE_LLAMADO = {"hey", "oye", "ey", "ok", "okay"}
 
