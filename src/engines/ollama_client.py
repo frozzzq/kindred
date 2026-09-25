@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from collections.abc import Callable
 
 import httpx
@@ -74,12 +75,16 @@ def preguntar_ollama(prompt: str, formato: str | None = None) -> RespuestaMotor:
     return RespuestaMotor(exito=True, texto=datos.get("response", ""))
 
 
-def _llamada_escrita_como_texto(contenido: str, nombres_validos: set[str]) -> dict | None:
-    """Recupera una llamada a herramienta que el modelo escribió como JSON en el texto.
+# Marcas que a veces rodean una llamada escrita como texto ("<tool_call>", "```json"...).
+_ENVOLTURAS_DE_LLAMADA = {"tool_call", "json", "function"}
 
-    Pasó en pruebas reales: en vez de usar tool_calls respondió literalmente
-    '{"name": "recordar_sobre_usuario", "arguments": {...}}', y eso se habría
-    leído en voz alta sin guardar nada.
+
+def _llamada_escrita_como_texto(contenido: str, nombres_validos: set[str]) -> dict | None:
+    """Recupera una llamada a herramienta que el modelo escribió en el texto en vez de ejecutarla.
+
+    Variantes vistas en pruebas reales (se habrían leído en voz alta sin guardar nada):
+    - '{"name": "recordar_sobre_usuario", "arguments": {"dato": ...}}'
+    - 'recordar_sobre_usuario {"dato": "Su nombre es Josue"}'  (nombre antes, JSON = argumentos)
     """
     inicio, fin = contenido.find("{"), contenido.rfind("}")
     if inicio == -1 or fin <= inicio:
@@ -88,8 +93,16 @@ def _llamada_escrita_como_texto(contenido: str, nombres_validos: set[str]) -> di
         datos = json.loads(contenido[inicio : fin + 1])
     except json.JSONDecodeError:
         return None
-    if isinstance(datos, dict) and datos.get("name") in nombres_validos:
+    if not isinstance(datos, dict):
+        return None
+    if datos.get("name") in nombres_validos:
         return {"function": {"name": datos["name"], "arguments": datos.get("arguments") or {}}}
+
+    # Solo si antes del JSON no hay nada más que el nombre de la herramienta (y marcas):
+    # así un texto normal que mencione una herramienta no se ejecuta por accidente.
+    palabras = re.findall(r"\w+", contenido[:inicio])
+    if palabras and palabras[-1] in nombres_validos and set(palabras) <= nombres_validos | _ENVOLTURAS_DE_LLAMADA:
+        return {"function": {"name": palabras[-1], "arguments": datos}}
     return None
 
 
