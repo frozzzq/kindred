@@ -1,26 +1,32 @@
 """UI de escritorio (Flet) para Jarvis.
 
 Dos apartados en páginas separadas:
-- Voz: el agente elegido se representa como un orbe animado en el centro;
-  un micrófono debajo se toca para empezar a grabar y otra vez para terminar.
+- Voz: el agente elegido se representa como un orbe animado en el centro.
+  Se le habla llamándolo por su nombre ("Crimson, ...") — eso abre una
+  ventana de conversación de un minuto en la que ya no hace falta repetir
+  el nombre — o con el micrófono (tocar para empezar, tocar para terminar).
   Cuando el agente habla, el orbe brilla con su color.
 - Chat: conversación por texto.
 
-El agente se elige a mano arriba (compartido por ambos apartados): Crimson
-fuerza Ollama, Clover fuerza Gemini y Jarvis deja que el router decida.
-Reutiliza procesar_comando y los módulos de voice/ sin adaptarlos.
+El agente se elige a mano arriba o diciendo su nombre: Crimson fuerza
+Ollama, Clover fuerza Gemini y Jarvis deja que el router decida.
 """
 
 import asyncio
 import threading
+import time
 from dataclasses import dataclass
 
 import flet as ft
+import sounddevice as sd
 
+from src.actions.confirmacion import es_afirmativo
 from src.agente.conversacion import Conversacion
 from src.main import procesar_comando
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA, nombre_motor
-from src.voice.stt import Grabadora, transcribir
+from src.voice.activacion import VentanaConversacion
+from src.voice.escucha_continua import EscuchaContinua
+from src.voice.stt import Grabadora, grabar_hasta_silencio, transcribir
 from src.voice.tts import hablar
 
 
@@ -42,6 +48,7 @@ AGENTES = (MOTOR_OLLAMA, MOTOR_GEMINI, MOTOR_ACCION)
 COLOR_USUARIO = ft.Colors.BLUE_GREY_200
 FONDO = "#0B0E14"
 ESTADO_VOZ_REPOSO = "Toca el micrófono para hablar"
+SEGUNDOS_AVISO = 4  # cuánto se muestra un aviso ("No te entendí...") antes de volver al estado normal
 
 # Recorrido del foco de luz dentro del orbe, para que se sienta "vivo".
 CENTROS_DE_LUZ = (
@@ -92,10 +99,16 @@ class Orbe:
             center=CENTROS_DE_LUZ[self._paso % len(CENTROS_DE_LUZ)],
             radius=0.9,
         )
+        if hablando:
+            expansion, difuminado, opacidad = 22, 90, 0.9
+        elif self.escuchando:  # ventana de conversación abierta: "despierto", esperando que hables
+            expansion, difuminado, opacidad = 10, 60, 0.65
+        else:
+            expansion, difuminado, opacidad = 4, 40, 0.4
         self.control.shadow = ft.BoxShadow(
-            spread_radius=22 if hablando else 4,
-            blur_radius=90 if hablando else 40,
-            color=ft.Colors.with_opacity(0.9 if hablando else 0.4, paleta.principal),
+            spread_radius=expansion,
+            blur_radius=difuminado,
+            color=ft.Colors.with_opacity(opacidad, paleta.principal),
         )
 
     def cambiar_agente(self, motor: str) -> None:
@@ -131,8 +144,15 @@ class JarvisApp:
         # Una sola conversación compartida por Voz y Chat: son la misma charla.
         self.conversacion = Conversacion()
         self.ocupado = False
+        self.ventana = VentanaConversacion()
+        self.escucha = EscuchaContinua(self._al_escuchar_frase)
+        # Las frases llegan en hilos separados; se atienden de una en una.
+        self._turno = threading.Lock()
+        self._aviso: str | None = None
+        self._aviso_hasta = 0.0
 
         self.orbe = Orbe(self.agente)
+        self.selector = self._construir_selector()
         self.nombre_agente = ft.Text(size=26, weight=ft.FontWeight.BOLD)
         self.estado_voz = ft.Text(size=14, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER)
         self.icono_micro = ft.Icon(ft.Icons.MIC, size=34, color=ft.Colors.WHITE)
@@ -145,6 +165,11 @@ class JarvisApp:
             on_click=self.tocar_microfono,
             animate=ft.Animation(250, ft.AnimationCurve.EASE_OUT),
             tooltip="Toca para hablar, toca otra vez para terminar",
+        )
+        self.interruptor_nombre = ft.Switch(
+            label="Activar diciendo su nombre",
+            value=True,
+            on_change=self.cambiar_activacion_por_nombre,
         )
         self.ultimo_usuario = ft.Text(size=13, color=COLOR_USUARIO, text_align=ft.TextAlign.CENTER)
         self.ultima_respuesta = ft.Text(size=13, text_align=ft.TextAlign.CENTER, selectable=True)
@@ -176,7 +201,7 @@ class JarvisApp:
                 self.estado_voz,
                 ft.Container(height=10),
                 self.boton_micro,
-                ft.Container(height=10),
+                self.interruptor_nombre,
                 ft.Container(
                     content=ft.Column([self.ultimo_usuario, self.ultima_respuesta], spacing=6, scroll=ft.ScrollMode.AUTO),
                     height=120,
@@ -202,9 +227,9 @@ class JarvisApp:
         page = self.page
         page.title = "Jarvis"
         page.window.width = 480
-        page.window.height = 780
+        page.window.height = 820
         page.window.min_width = 400
-        page.window.min_height = 620
+        page.window.min_height = 660
         page.theme_mode = ft.ThemeMode.DARK
         page.bgcolor = FONDO
         page.padding = 16
@@ -218,11 +243,13 @@ class JarvisApp:
             on_change=self.cambiar_apartado,
         )
         page.add(
-            ft.Row([self._construir_selector()], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([self.selector], alignment=ft.MainAxisAlignment.CENTER),
             ft.Stack([self.vista_voz, self.vista_chat], expand=True),
         )
         self._refrescar_agente()
-        self.estado_voz.value = ESTADO_VOZ_REPOSO
+        if self.interruptor_nombre.value:
+            self._iniciar_escucha()
+        self.estado_voz.value = self._texto_estado()
         page.update()
         page.run_task(self._animar)
 
@@ -235,14 +262,40 @@ class JarvisApp:
         paleta = self._paleta_actual()
         self.nombre_agente.value = nombre_motor(self.agente)
         self.nombre_agente.color = paleta.principal
+        self.interruptor_nombre.active_color = paleta.principal
         if not self.grabadora.grabando:
             self.boton_micro.bgcolor = paleta.principal
         self.orbe.cambiar_agente(self.agente)
 
+    def _seleccionar_agente(self, motor: str) -> None:
+        self.agente = motor
+        self.selector.selected = [motor]
+        self.ventana.agente = motor
+        self._refrescar_agente()
+
+    def _avisar(self, mensaje: str) -> None:
+        """Muestra un aviso pasajero en el estado de voz (luego vuelve al estado normal)."""
+        self._aviso = mensaje
+        self._aviso_hasta = time.monotonic() + SEGUNDOS_AVISO
+
+    def _texto_estado(self) -> str:
+        if self._aviso and time.monotonic() < self._aviso_hasta:
+            return self._aviso
+        nombre = nombre_motor(self.agente)
+        if self.escucha.activa and self.ventana.abierta:
+            return f"{nombre} te escucha · {int(self.ventana.segundos_restantes())} s"
+        if self.escucha.activa:
+            return f'Di "{nombre}" o toca el micrófono'
+        return ESTADO_VOZ_REPOSO
+
     async def _animar(self) -> None:
         while True:
+            self.orbe.escuchando = self.grabadora.grabando or (self.escucha.activa and self.ventana.abierta)
             self.orbe.latido()
             self.orbe.control.update()
+            if not self.ocupado and not self.grabadora.grabando:
+                self.estado_voz.value = self._texto_estado()
+                self.estado_voz.update()
             await asyncio.sleep(self.orbe.intervalo)
 
     # ---------- eventos ----------
@@ -254,8 +307,23 @@ class JarvisApp:
         self.page.update()
 
     def cambiar_agente(self, e) -> None:
-        self.agente = e.control.selected[0]
-        self._refrescar_agente()
+        self._seleccionar_agente(e.control.selected[0])
+        self.page.update()
+
+    def _iniciar_escucha(self) -> None:
+        try:
+            self.escucha.iniciar()
+        except sd.PortAudioError as error:
+            self.interruptor_nombre.value = False
+            self._avisar(f"No pude abrir el micrófono: {error}")
+
+    def cambiar_activacion_por_nombre(self, e) -> None:
+        if self.interruptor_nombre.value:
+            self._iniciar_escucha()
+        else:
+            self.escucha.detener()
+            self.ventana.cerrar()
+        self.estado_voz.value = self._texto_estado()
         self.page.update()
 
     def _motor_forzado(self) -> str | None:
@@ -277,7 +345,7 @@ class JarvisApp:
         return motor
 
     def confirmador_ui(self, descripcion: str) -> bool:
-        """Confirmación por diálogo (misma idea que confirmar_por_texto/voz, pero en UI)."""
+        """Confirmación por diálogo (para el chat)."""
         resultado = {"valor": False}
         evento = threading.Event()
 
@@ -303,6 +371,14 @@ class JarvisApp:
         evento.wait()
         return resultado["valor"]
 
+    def confirmador_voz(self, descripcion: str) -> bool:
+        """Confirmación hablada (para el apartado de voz): pregunta y escucha "sí" o "no"."""
+        self.estado_voz.value = f"{descripcion} Di sí o no."
+        self.page.update()
+        hablar(f"{descripcion} Di sí o no.", motor=self._motor_mostrado(MOTOR_ACCION))
+        respuesta = transcribir(grabar_hasta_silencio(), filtrar_ruido=True)
+        return es_afirmativo(respuesta)
+
     def _agregar_al_historial(self, nombre: str, texto: str, color: str) -> None:
         self.historial.controls.append(
             ft.Container(
@@ -318,12 +394,31 @@ class JarvisApp:
 
     # --- voz ---
 
+    def _al_escuchar_frase(self, audio) -> None:
+        """Llega una frase de la escucha continua: ¿llamaron al agente o sigue abierta la ventana?"""
+        if self.ocupado or self.grabadora.grabando:
+            return
+        with self._turno:
+            texto = transcribir(audio, filtrar_ruido=True)
+            if not texto:
+                return
+            agente, mensaje = self.ventana.procesar(texto)
+            if agente is None:
+                return  # no le hablaban al asistente
+            if agente != self.agente:
+                self._seleccionar_agente(agente)
+            if not mensaje:
+                self.estado_voz.value = self._texto_estado()
+                self.page.update()
+                return  # solo lo llamaron por su nombre: queda escuchando
+            self._atender_voz(mensaje)
+
     def tocar_microfono(self, e) -> None:
         if self.ocupado:
             return
         if not self.grabadora.grabando:
+            self.escucha.pausar()
             self.grabadora.iniciar()
-            self.orbe.escuchando = True
             self.icono_micro.icon = ft.Icons.STOP_ROUNDED
             self.boton_micro.bgcolor = ft.Colors.RED_700
             self.estado_voz.value = "Escuchando... toca otra vez para terminar"
@@ -331,22 +426,27 @@ class JarvisApp:
             return
 
         audio = self.grabadora.detener()
-        self.orbe.escuchando = False
         self.ocupado = True
         self.icono_micro.icon = ft.Icons.MIC
         self.boton_micro.bgcolor = ft.Colors.GREY_700
         self.estado_voz.value = "Transcribiendo..."
         self.page.update()
-        threading.Thread(target=self._procesar_voz, args=(audio,), daemon=True).start()
+        threading.Thread(target=self._procesar_grabacion, args=(audio,), daemon=True).start()
 
-    def _procesar_voz(self, audio) -> None:
-        aviso = None
+    def _procesar_grabacion(self, audio) -> None:
+        texto = transcribir(audio)
+        if texto:
+            self._atender_voz(texto)
+            return
+        self._avisar("No te entendí, intenta de nuevo")
+        self._terminar_turno_de_voz()
+
+    def _atender_voz(self, texto: str) -> None:
+        """Responde a lo dicho por voz (por el micrófono o llamando al agente por su nombre)."""
+        self.ocupado = True
+        # Mientras piensa y habla no se escucha: se oiría a sí mismo y se contestaría en bucle.
+        self.escucha.pausar()
         try:
-            texto = transcribir(audio)
-            if not texto:
-                aviso = "No te entendí, intenta de nuevo"
-                return
-
             self.ultimo_usuario.value = f"Tú: {texto}"
             self.ultima_respuesta.value = ""
             self.estado_voz.value = "Pensando..."
@@ -355,7 +455,7 @@ class JarvisApp:
 
             respuesta = procesar_comando(
                 texto,
-                confirmador=self.confirmador_ui,
+                confirmador=self.confirmador_voz,
                 motor_forzado=self._motor_forzado(),
                 conversacion=self.conversacion,
             )
@@ -372,11 +472,19 @@ class JarvisApp:
 
             hablar(respuesta.texto, motor=motor_mostrado)
         finally:
-            self.orbe.dejar_de_hablar()
-            self.ocupado = False
-            self.boton_micro.bgcolor = self._paleta_actual().principal
-            self.estado_voz.value = aviso or ESTADO_VOZ_REPOSO
-            self.page.update()
+            self._terminar_turno_de_voz()
+
+    def _terminar_turno_de_voz(self) -> None:
+        self.orbe.dejar_de_hablar()
+        self.ocupado = False
+        self.boton_micro.bgcolor = self._paleta_actual().principal
+        if self.escucha.activa:
+            # El minuto cuenta desde que el agente terminó de hablar, no desde que se le preguntó.
+            self.ventana.agente = self.agente
+            self.ventana.extender()
+            self.escucha.reanudar()
+        self.estado_voz.value = self._texto_estado()
+        self.page.update()
 
     # --- chat ---
 
