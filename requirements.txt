@@ -1,14 +1,12 @@
 httpx>=0.27
 python-dotenv>=1.0
-google-genai>=0.3
-ddgs>=9.0
+google-genai>=0.3,<2.0
+ddgs>=9.0,<10.0
 
 faster-whisper>=1.0
 sounddevice>=0.4
 numpy>=1.26
 playsound3>=2.2
 openwakeword>=0.6
-flet>=1.0
-flet-desktop>=1.0
-
-pytest>=8.0
+flet>=1.0,<2.0
+flet-desktop>=1.0,<2.0

@@ -56,8 +56,18 @@ a Whisper y al detector de wake word — afecta tanto STT como wake word.
 ```bash
 python -m venv .venv
 .venv\Scripts\activate      # Windows
-pip install -r requirements.txt
+pip install -r requirements-lock.txt      # instalación reproducible (recomendado)
+# O, para desarrollo (con pytest):
+# pip install -r requirements-dev.txt
 copy .env.example .env      # y completar con tus valores reales
+```
+
+**Nota:** `requirements-lock.txt` fija las versiones exactas de todas las dependencias para garantizar
+reproductibilidad. `requirements-dev.txt` incluye pytest y se usa para desarrollo local. Regenerar el
+lockfile tras cambios en `requirements.txt` o `requirements-dev.txt`:
+```bash
+.venv\Scripts\python.exe -m pip freeze > requirements-lock.txt
+pytest  # verificar que todo sigue funcionando
 ```
 
 ### Uso
