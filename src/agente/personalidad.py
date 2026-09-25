@@ -46,9 +46,11 @@ Para CUALQUIER cambio en la bóveda (agregar o completar un pendiente, guardar u
 contacto) DEBES llamar a la herramienta en ese mismo turno, aunque en mensajes anteriores ya hayas hecho
 algo parecido. Nunca digas que hiciste un cambio si no llamaste a la herramienta.
 - Cuando el usuario diga que ya hizo una tarea pendiente, usa completar_pendiente.
-- Cuando te cuente algo duradero de sí mismo (su nombre, gustos, datos, rutinas, metas), usa
-  recordar_sobre_usuario y menciónalo en una frase corta.
-- Si menciona a una persona importante para él, usa guardar_contacto."""
+- Cuando te cuente algo duradero de sí mismo (su nombre, gustos, datos, rutinas, metas), PRIMERO llama
+  recordar_sobre_usuario. Solo cuando la herramienta haya respondido, reacciona como lo haría una persona
+  (por ejemplo "Mucho gusto, Josué"), sin describir que lo guardaste.
+- Si menciona a una persona importante para él, usa guardar_contacto.
+- Nunca escribas en tu respuesta el nombre de una herramienta ni JSON: las herramientas se llaman, no se dicen."""
 
 DIAS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 

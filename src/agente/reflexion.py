@@ -21,8 +21,8 @@ from src.obsidian.vault_writer import (
     RUTA_PERFIL,
     anotar_patron,
     escribir_nota,
-    normalizar,
     recordar_sobre_usuario,
+    ya_esta_anotado,
 )
 from src.router.intent_router import MOTOR_GEMINI_FALLO
 
@@ -48,7 +48,7 @@ Extrae SOLO:
 - "datos_usuario": hechos duraderos que el usuario haya dicho explícitamente sobre sí mismo (gustos, datos personales, rutinas, metas, personas cercanas).
 - "patrones": hábitos o tendencias que aparezcan en al menos 3 interacciones distintas (horarios, tipo de peticiones frecuentes, temas recurrentes). Si algo pasó una o dos veces, NO es un patrón.
 
-Ignora pruebas del sistema, preguntas de cultura general, frases sin sentido o mal transcritas, y cualquier cosa que el asistente haya dicho pero el usuario no. Si no hay nada nuevo y seguro, devuelve listas vacías. Cada elemento es una oración corta en español.
+Ignora pruebas del sistema, preguntas de cultura general, frases sin sentido o mal transcritas, y cualquier cosa que el asistente haya dicho pero el usuario no. Si no hay nada nuevo y seguro, devuelve listas vacías. Cada elemento es una oración corta en español y en tercera persona (por ejemplo "Se llama Josué", "Le gusta el café"), nunca en primera persona.
 
 Responde solo con JSON: {{"datos_usuario": [...], "patrones": [...]}}"""
 
@@ -76,13 +76,11 @@ def _entradas_log() -> list[str]:
 
 def _nuevos(candidatos: list, existente: str) -> list[str]:
     """Filtra lo que ya está anotado (el modelo repite datos aunque se le pida no hacerlo)."""
-    ya_anotado = normalizar(existente)
     nuevos: list[str] = []
     for candidato in candidatos:
         if not isinstance(candidato, str) or not candidato.strip():
             continue
-        clave = normalizar(candidato.strip().rstrip("."))
-        if clave in ya_anotado or any(clave in normalizar(n) for n in nuevos):
+        if ya_esta_anotado(candidato, existente + "\n" + "\n".join(nuevos)):
             continue
         nuevos.append(candidato.strip())
     return nuevos
@@ -97,6 +95,32 @@ def debe_reflexionar() -> bool:
     return total - int(config[CLAVE_ULTIMA_REFLEXION]) >= CADA_N_INTERACCIONES
 
 
+def _extraer_y_anotar(interacciones: list[str], incluir_patrones: bool) -> list[str]:
+    """Le pide al modelo lo aprendido de estas interacciones y anota lo que sea nuevo."""
+    perfil = (leer_nota(RUTA_PERFIL) or "").strip()
+    patrones = (leer_nota(RUTA_PATRONES) or "").strip()
+    prompt = PROMPT_REFLEXION.format(
+        perfil=perfil or "(vacío)",
+        patrones=patrones or "(vacío)",
+        interacciones="\n\n".join(interacciones),
+    )
+    respuesta = preguntar_ollama(prompt, formato="json")
+    if not respuesta.exito:
+        return []
+    try:
+        datos = json.loads(respuesta.texto)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(datos, dict):
+        return []
+
+    resultados = [recordar_sobre_usuario(dato) for dato in _nuevos(datos.get("datos_usuario", []), perfil)]
+    if incluir_patrones:
+        resultados += [anotar_patron(patron) for patron in _nuevos(datos.get("patrones", []), patrones)]
+    # Otro hilo (el agente o una extracción) pudo haberlo anotado mientras tanto.
+    return [r for r in resultados if not r.startswith("Ya estaba")]
+
+
 def reflexionar() -> list[str]:
     """Revisa las interacciones nuevas y anota lo aprendido. Devuelve lo anotado."""
     entradas = _entradas_log()
@@ -104,30 +128,39 @@ def reflexionar() -> list[str]:
     nuevas = [e for e in entradas[ultima:] if f"({MOTOR_GEMINI_FALLO})" not in e.splitlines()[0]]
     nuevas = nuevas[-MAX_INTERACCIONES_POR_REFLEXION:]
 
-    anotado: list[str] = []
-    if nuevas:
-        perfil = (leer_nota(RUTA_PERFIL) or "").strip()
-        patrones = (leer_nota(RUTA_PATRONES) or "").strip()
-        prompt = PROMPT_REFLEXION.format(
-            perfil=perfil or "(vacío)",
-            patrones=patrones or "(vacío)",
-            interacciones="\n\n".join(nuevas),
-        )
-        respuesta = preguntar_ollama(prompt, formato="json")
-        if respuesta.exito:
-            try:
-                datos = json.loads(respuesta.texto)
-            except json.JSONDecodeError:
-                datos = {}
-            if not isinstance(datos, dict):
-                datos = {}
-            for dato in _nuevos(datos.get("datos_usuario", []), perfil):
-                anotado.append(recordar_sobre_usuario(dato))
-            for patron in _nuevos(datos.get("patrones", []), patrones):
-                anotado.append(anotar_patron(patron))
-
+    anotado = _extraer_y_anotar(nuevas, incluir_patrones=True) if nuevas else []
     _guardar_config(CLAVE_ULTIMA_REFLEXION, str(len(entradas)))
     return anotado
+
+
+# "me llamo", "mi nombre es", "me gusta", "vivo en", "trabajo en", "tengo 25 años"...
+_PARECE_DATO_PERSONAL = re.compile(
+    r"\b(me llamo|mi nombre es|me gustan?|me encantan?|odio|no me gusta|prefiero|soy de|vivo en|"
+    r"trabajo (en|como|de)|estudio|mi cumpleaños|nac[íi]|tengo \d+ años|mi (esposa|esposo|novia|novio|"
+    r"mamá|papá|hermana|hermano|hijo|hija|perro|gato))\b",
+    re.IGNORECASE,
+)
+
+
+def aprender_si_quedo_sin_guardar(texto_usuario: str, herramientas_usadas: list[str]) -> None:
+    """Red de seguridad: si el usuario contó algo personal y el agente no lo guardó, se extrae ya.
+
+    En pruebas reales el modelo a veces respondía "Mucho gusto, Josué" sin
+    llamar a recordar_sobre_usuario. Esperar a la reflexión (cada 10
+    interacciones) sería demasiado tarde para algo como su nombre. Corre en
+    segundo plano, sin sumar latencia; tampoco Gemini tiene herramientas,
+    así que esto es lo que le permite aprender a Clover.
+    """
+    if "recordar_sobre_usuario" in herramientas_usadas or not _PARECE_DATO_PERSONAL.search(texto_usuario):
+        return
+
+    def trabajo() -> None:
+        try:
+            _extraer_y_anotar([f"**Usuario:** {texto_usuario}"], incluir_patrones=False)
+        except (RuntimeError, ValueError, OSError):
+            pass
+
+    threading.Thread(target=trabajo, daemon=True).start()
 
 
 def reflexionar_si_toca() -> None:
