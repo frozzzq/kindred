@@ -22,6 +22,21 @@ def test_transcribir_une_segmentos(mock_obtener_modelo):
     assert resultado == "hola mundo"
 
 
+@patch("src.voice.stt._obtener_modelo")
+def test_transcribir_con_filtro_descarta_segmentos_que_no_son_voz(mock_obtener_modelo):
+    """En la escucha continua, Whisper 'alucina' frases a partir de ruido de fondo."""
+    voz = MagicMock(text=" Crimson, hola ", no_speech_prob=0.1)
+    alucinacion = MagicMock(text="Gracias por ver", no_speech_prob=0.9)
+    modelo_mock = MagicMock()
+    modelo_mock.transcribe.return_value = ([voz, alucinacion], None)
+    mock_obtener_modelo.return_value = modelo_mock
+
+    resultado = stt.transcribir(np.ones(10, dtype="float32"), filtrar_ruido=True)
+
+    assert resultado == "Crimson, hola"
+    assert modelo_mock.transcribe.call_args.kwargs["vad_filter"] is True
+
+
 @patch("src.voice.stt.sd.InputStream")
 def test_grabar_hasta_silencio_para_tras_hablar_y_callar(mock_input_stream):
     mock_input_stream.return_value.__enter__.return_value = MagicMock()

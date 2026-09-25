@@ -87,6 +87,44 @@ def test_reflexionar_no_duplica_lo_que_ya_esta_en_el_perfil(mock_ollama, tmp_pat
     assert anotado == ["Anotado en tu perfil: Vive en Guadalajara"]
 
 
+class _HiloInmediato:
+    """Sustituto de threading.Thread que ejecuta el trabajo en el acto, para poder verificarlo."""
+
+    def __init__(self, target, daemon=None):
+        self._target = target
+
+    def start(self):
+        self._target()
+
+
+@patch("src.agente.reflexion.threading.Thread", _HiloInmediato)
+@patch("src.agente.reflexion.preguntar_ollama")
+def test_dato_personal_sin_guardar_se_extrae_en_el_momento(mock_ollama, tmp_path, monkeypatch):
+    """Caso real: respondió 'Mucho gusto, Josué' sin llamar a recordar_sobre_usuario."""
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto=json.dumps({"datos_usuario": ["Se llama Josué"]}))
+
+    reflexion.aprender_si_quedo_sin_guardar("Ok, mi nombre es Josue", herramientas_usadas=[])
+
+    assert "Se llama Josué" in (tmp_path / "01-Perfil" / "Yo.md").read_text(encoding="utf-8")
+
+
+@patch("src.agente.reflexion.threading.Thread", _HiloInmediato)
+@patch("src.agente.reflexion.preguntar_ollama")
+def test_no_extrae_si_el_agente_ya_lo_guardo(mock_ollama):
+    reflexion.aprender_si_quedo_sin_guardar("mi nombre es Josue", herramientas_usadas=["recordar_sobre_usuario"])
+
+    mock_ollama.assert_not_called()
+
+
+@patch("src.agente.reflexion.threading.Thread", _HiloInmediato)
+@patch("src.agente.reflexion.preguntar_ollama")
+def test_no_extrae_de_mensajes_que_no_son_personales(mock_ollama):
+    reflexion.aprender_si_quedo_sin_guardar("¿cuál es la capital de Francia?", herramientas_usadas=[])
+
+    mock_ollama.assert_not_called()
+
+
 @patch("src.agente.reflexion.preguntar_ollama")
 def test_reflexionar_tolera_json_invalido(mock_ollama, tmp_path, monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))

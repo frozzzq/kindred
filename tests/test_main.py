@@ -14,7 +14,9 @@ def sin_efectos_externos():
     """Evita tocar la bóveda real y arma un prompt de sistema falso predecible."""
     with patch("src.main.evaluar_guardado") as guardado, patch(
         "src.main.construir_prompt_sistema", side_effect=lambda motor, con_herramientas: f"sistema-{motor}"
-    ), patch("src.main.registrar_interaccion"), patch("src.main.construir_contexto_web", return_value=""):
+    ), patch("src.main.registrar_interaccion"), patch("src.main.construir_contexto_web", return_value=""), patch(
+        "src.main.aprender_si_quedo_sin_guardar"
+    ):
         yield guardado
 
 

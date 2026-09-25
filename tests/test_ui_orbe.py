@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
 from src.ui.app import PALETAS, JarvisApp, Orbe
@@ -63,6 +63,59 @@ def test_accion_se_queda_como_jarvis_en_modo_automatico():
     app.agente = MOTOR_ACCION
 
     assert app._motor_mostrado(MOTOR_ACCION) == MOTOR_ACCION
+
+
+def _app_escuchando(transcripcion):
+    app = JarvisApp(MagicMock())
+    app._atender_voz = MagicMock()
+    patcher = patch("src.ui.app.transcribir", return_value=transcripcion)
+    patcher.start()
+    return app, patcher
+
+
+def test_frase_sin_nombre_con_ventana_cerrada_se_ignora():
+    app, patcher = _app_escuchando("¿qué hora es?")
+    try:
+        app._al_escuchar_frase(audio=None)
+    finally:
+        patcher.stop()
+
+    app._atender_voz.assert_not_called()
+
+
+def test_llamar_a_crimson_lo_selecciona_y_le_pasa_el_mensaje():
+    app, patcher = _app_escuchando("Crimson, ¿qué pendientes tengo?")
+    try:
+        app._al_escuchar_frase(audio=None)
+    finally:
+        patcher.stop()
+
+    assert app.agente == MOTOR_OLLAMA
+    assert app.selector.selected == [MOTOR_OLLAMA]
+    app._atender_voz.assert_called_once_with("¿qué pendientes tengo?")
+
+
+def test_solo_el_nombre_abre_la_ventana_sin_responder():
+    app, patcher = _app_escuchando("Clover")
+    try:
+        app._al_escuchar_frase(audio=None)
+    finally:
+        patcher.stop()
+
+    assert app.agente == MOTOR_GEMINI
+    assert app.ventana.abierta
+    app._atender_voz.assert_not_called()
+
+
+def test_mientras_esta_ocupado_no_atiende_frases():
+    app, patcher = _app_escuchando("Crimson, hola")
+    app.ocupado = True
+    try:
+        app._al_escuchar_frase(audio=None)
+    finally:
+        patcher.stop()
+
+    app._atender_voz.assert_not_called()
 
 
 def test_respuesta_normal_de_motor_no_se_reasigna():

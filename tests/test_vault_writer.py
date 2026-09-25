@@ -96,6 +96,29 @@ def test_recordar_sobre_usuario_escribe_en_el_perfil(tmp_path, monkeypatch):
     assert perfil.startswith("- Le gusta el café sin azúcar")
 
 
+def test_recordar_sobre_usuario_no_duplica_con_otras_palabras(tmp_path, monkeypatch):
+    """Caso real: 'mi nombre es Josue' y 'Su nombre es Josue' quedaron como dos líneas."""
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    recordar_sobre_usuario("mi nombre es Josue")
+
+    resultado = recordar_sobre_usuario("Su nombre es Josué")
+    recordar_sobre_usuario("Se llama Josue")
+
+    perfil = (tmp_path / "01-Perfil" / "Yo.md").read_text(encoding="utf-8")
+    assert perfil.count("\n") == 0  # sigue siendo una sola línea
+    assert resultado.startswith("Ya estaba")
+
+
+def test_recordar_sobre_usuario_si_anota_datos_distintos(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    recordar_sobre_usuario("Se llama Josué")
+
+    recordar_sobre_usuario("Le gusta programar en Python por las noches")
+
+    perfil = (tmp_path / "01-Perfil" / "Yo.md").read_text(encoding="utf-8")
+    assert "Python" in perfil and "Josué" in perfil
+
+
 def test_guardar_contacto(tmp_path, monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
 

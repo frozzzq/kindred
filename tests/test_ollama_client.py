@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from src.engines.ollama_client import MAX_RONDAS_HERRAMIENTAS, conversar_ollama, preguntar_ollama
 from src.obsidian.herramientas import DEFINICIONES
@@ -96,6 +97,36 @@ def test_conversar_ejecuta_una_llamada_escrita_como_texto(mock_post):
     assert ejecutadas == [("recordar_sobre_usuario", {"dato": "Se llama Luis"})]
     assert resultado.texto == "Mucho gusto, Luis."
     assert resultado.herramientas_usadas == ["recordar_sobre_usuario"]
+
+
+@pytest.mark.parametrize(
+    "escrita",
+    [
+        ' recordar_sobre_usuario\n{"dato": "Su nombre es Josue"}',  # caso real de la UI
+        '<tool_call>recordar_sobre_usuario {"dato": "Su nombre es Josue"}</tool_call>',
+    ],
+)
+@patch("src.engines.ollama_client.httpx.post")
+def test_conversar_ejecuta_nombre_seguido_de_argumentos(mock_post, escrita):
+    mock_post.side_effect = [
+        _respuesta_http(_mensaje(escrita)),
+        _respuesta_http(_mensaje("Mucho gusto, Josué.")),
+    ]
+    ejecutadas = []
+
+    resultado = conversar_ollama([], DEFINICIONES, lambda nombre, args: ejecutadas.append((nombre, args)) or "ok")
+
+    assert ejecutadas == [("recordar_sobre_usuario", {"dato": "Su nombre es Josue"})]
+    assert resultado.texto == "Mucho gusto, Josué."
+
+
+@patch("src.engines.ollama_client.httpx.post")
+def test_texto_normal_que_menciona_una_herramienta_no_se_ejecuta(mock_post):
+    mock_post.return_value = _respuesta_http(_mensaje('Puedo usar leer_nota con {"ruta": "a.md"} si quieres'))
+
+    resultado = conversar_ollama([], DEFINICIONES, lambda nombre, args: "ok")
+
+    assert resultado.herramientas_usadas == []
 
 
 @patch("src.engines.ollama_client.httpx.post")

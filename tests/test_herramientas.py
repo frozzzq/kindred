@@ -11,6 +11,8 @@ from src.obsidian.herramientas import DEFINICIONES, IMPLEMENTACIONES, afirma_cam
         "Marqué como completada la tarea.",
         "He guardado que te llamas Luis.",
         "Añadí la tarea.",
+        "Mucho gusto, Josué, lo tendré presente.",  # caso real: lo dijo sin guardar nada
+        "Perfecto, lo tendré en cuenta.",
     ],
 )
 def test_detecta_cuando_dice_que_cambio_algo_sin_herramienta(texto):
