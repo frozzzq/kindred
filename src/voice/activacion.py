@@ -1,9 +1,9 @@
 """Activación por nombre del agente y ventana de conversación abierta.
 
-Decir "Crimson" (o "Clover", o "Jarvis") activa a ese agente y abre una
-ventana de conversación: mientras no pase un minuto sin hablar, lo que se
-diga va directo al agente sin repetir su nombre. Al cerrarse la ventana hay
-que volver a llamarlo por su nombre. Decir el nombre de otro agente con la
+Decir "Crimson" (o "Clover") activa a ese agente y abre una ventana de
+conversación: mientras no pase un minuto sin hablar, lo que se diga va
+directo al agente sin repetir su nombre. Al cerrarse la ventana hay que
+volver a llamarlo por su nombre. Decir el nombre del otro agente con la
 ventana abierta le pasa la palabra a ese otro.
 """
 
@@ -13,9 +13,9 @@ import time
 from collections.abc import Callable
 
 from src.obsidian.vault_writer import normalizar
-from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
+from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA
 
-NOMBRES = {"crimson": MOTOR_OLLAMA, "clover": MOTOR_GEMINI, "jarvis": MOTOR_ACCION}
+NOMBRES = {"crimson": MOTOR_OLLAMA, "clover": MOTOR_GEMINI}
 # Cómo transcribe Whisper los nombres a veces (visto en los logs reales y esperado).
 # Variantes comunes para cada nombre según errores de STT observados.
 VARIANTES = {
@@ -29,12 +29,6 @@ VARIANTES = {
     "clover": "clover",
     "klovar": "clover",
     "clova": "clover",
-    # Jarvis
-    "yervis": "jarvis",
-    "yarvis": "jarvis",
-    "jarbis": "jarvis",
-    "yarbis": "jarvis",
-    "llervis": "jarvis",
 }
 SIMILITUD_MINIMA = 0.80  # "crimson"/"crimsen" sí; "crimen" no (0.67 < 0.80)
 DURACION_VENTANA_SEGUNDOS = 60.0

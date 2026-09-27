@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 from src.main import Respuesta
 from src.obsidian.grafo import Grafo, Nodo
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
-from src.ui.app import JarvisApp
+from src.ui.app import AGENTES, JarvisApp
+
+
+def test_ya_no_existe_el_modo_automatico_de_jarvis():
+    assert MOTOR_ACCION not in AGENTES
+    assert set(AGENTES) == {MOTOR_OLLAMA, MOTOR_GEMINI}
 
 
 def test_accion_se_atribuye_al_agente_seleccionado():
@@ -13,13 +18,6 @@ def test_accion_se_atribuye_al_agente_seleccionado():
     app.agente = MOTOR_OLLAMA
 
     assert app._motor_mostrado(MOTOR_ACCION) == MOTOR_OLLAMA
-
-
-def test_accion_se_queda_como_jarvis_en_modo_automatico():
-    app = JarvisApp(MagicMock())
-    app.agente = MOTOR_ACCION
-
-    assert app._motor_mostrado(MOTOR_ACCION) == MOTOR_ACCION
 
 
 def _app_escuchando(transcripcion):

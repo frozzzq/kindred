@@ -11,7 +11,7 @@ Dos apartados en páginas separadas:
 - Chat: conversación por texto.
 
 El agente se elige a mano arriba o diciendo su nombre: Crimson fuerza
-Ollama, Clover fuerza Gemini y Jarvis deja que el router decida.
+Ollama y Clover fuerza Gemini.
 """
 
 import asyncio
@@ -33,7 +33,7 @@ from src.voice.escucha_continua import EscuchaContinua
 from src.voice.stt import Grabadora, grabar_hasta_silencio, transcribir
 from src.voice.tts import MedidorDeVolumen, hablar
 
-AGENTES = (MOTOR_OLLAMA, MOTOR_GEMINI, MOTOR_ACCION)
+AGENTES = (MOTOR_OLLAMA, MOTOR_GEMINI)
 COLOR_USUARIO = ft.Colors.BLUE_GREY_200
 FONDO = "#0B0E14"
 ESTADO_VOZ_REPOSO = "Toca el micrófono para hablar"
@@ -46,7 +46,7 @@ SEGUNDOS_ENTRE_ESTADOS = 0.5
 class JarvisApp:
     def __init__(self, page: ft.Page) -> None:
         self.page = page
-        self.agente = MOTOR_ACCION
+        self.agente = MOTOR_OLLAMA
         self.grabadora = Grabadora()
         # Una sola conversación compartida por Voz y Chat: son la misma charla.
         self.conversacion = Conversacion()
@@ -255,21 +255,19 @@ class JarvisApp:
         self.estado_voz.value = self._texto_estado()
         self.page.update()
 
-    def _motor_forzado(self) -> str | None:
-        return None if self.agente == MOTOR_ACCION else self.agente
+    def _motor_forzado(self) -> str:
+        """Siempre hay un agente elegido (Crimson u Clover): nunca se deja que el router decida solo."""
+        return self.agente
 
     def _motor_mostrado(self, motor: str) -> str:
         """A qué agente atribuirle la respuesta para mostrar/hablar.
 
         Las acciones directas (abrir apps) no las contesta ningún motor de
-        IA, así que internamente siempre llegan como MOTOR_ACCION. Si el
-        usuario tenía un agente específico seleccionado (Crimson/Clover),
-        se lo atribuimos a ese agente en vez de saltar a Jarvis — le habló
-        a ese agente, y ese agente debe confirmarle (con su voz y color
-        incluidos). Con Jarvis (automático) seleccionado, sí se queda
-        como Jarvis.
+        IA, así que internamente siempre llegan como MOTOR_ACCION. Se le
+        atribuyen al agente seleccionado (Crimson/Clover) — le habló a ese
+        agente, y ese agente debe confirmarle (con su voz y color incluidos).
         """
-        if motor == MOTOR_ACCION and self.agente != MOTOR_ACCION:
+        if motor == MOTOR_ACCION:
             return self.agente
         return motor
 

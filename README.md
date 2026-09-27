@@ -184,8 +184,8 @@ ni servidor separado), con dos apartados en la barra inferior:
   tenues (para que haya estructura aunque las notas aún no se enlacen).
   - Gira 360° lentamente (una vuelta cada 40 s) con perspectiva: lo lejano
     se ve más pequeño y tenue, y solo se rotulan las notas del frente.
-  - Toma el color del agente (Crimson carmesí, Clover violeta, Jarvis azul)
-    con transición suave; al responder usa el color de quien realmente habló.
+  - Toma el color del agente (Crimson carmesí, Clover violeta) con
+    transición suave; al responder usa el color de quien realmente habló.
   - **Brilla según el volumen de la voz** del agente, no solo encendido/
     apagado: la voz se reproduce con `sounddevice` y se mide el volumen de
     cada fragmento mientras suena (`MedidorDeVolumen` en `src/voice/tts.py`).
@@ -193,7 +193,7 @@ ni servidor separado), con dos apartados en la barra inferior:
     editada o borrada) y rehace el grafo sin mover los nodos que ya estaban;
     los nuevos aparecen junto a sus vecinos (`src/obsidian/grafo.py`).
   - **Activación por nombre** (interruptor, encendido por defecto): di
-    "Crimson", "Clover" o "Jarvis" (solo o seguido de lo que quieres, ej.
+    "Crimson" o "Clover" (solo o seguido de lo que quieres, ej.
     "Crimson, ¿qué pendientes tengo?"). Eso abre una **ventana de
     conversación de 1 minuto**: mientras sigas hablando no hace falta
     repetir el nombre, y cada frase reinicia el minuto. Tras un minuto en
@@ -201,7 +201,7 @@ ni servidor separado), con dos apartados en la barra inferior:
     palabra a ese agente. El grafo brilla un poco más mientras la ventana
     está abierta, y el estado muestra los segundos que quedan.
   - El nombre lo detecta Whisper (escucha continua + tolerancia a errores
-    de transcripción como "Yarvis"/"Grimson"), así que usa algo de CPU y
+    de transcripción como "Grimson"/"Cloba"), así que usa algo de CPU y
     puede activarse si mencionas el nombre en una plática.
   - Mientras el agente piensa y habla, la escucha se pausa (si no, se
     oiría a sí mismo y se contestaría en bucle). Las confirmaciones
@@ -211,8 +211,9 @@ ni servidor separado), con dos apartados en la barra inferior:
 - **Chat:** conversación por texto (incluye también lo dicho por voz).
 
 Arriba se elige el agente a mano (o diciendo su nombre): **Crimson**
-siempre usa Ollama, **Clover** siempre usa Gemini (con fallback a Ollama si
-falla) y **Jarvis** deja que el router decida.
+siempre usa Ollama y **Clover** siempre usa Gemini (con fallback a Ollama
+si falla). Las acciones del sistema (abrir apps) se le atribuyen al
+agente que tengas elegido en ese momento.
 
 ### Tests
 

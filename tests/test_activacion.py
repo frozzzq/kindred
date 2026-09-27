@@ -1,6 +1,6 @@
 import pytest
 
-from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
+from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA
 from src.voice.activacion import VentanaConversacion, detectar_nombre
 
 
@@ -14,7 +14,6 @@ from src.voice.activacion import VentanaConversacion, detectar_nombre
         ("Hey Crimson", MOTOR_OLLAMA, ""),
         ("Hola Crimson", MOTOR_OLLAMA, "Hola"),
         ("Clover, resume esto", MOTOR_GEMINI, "resume esto"),
-        ("Hola Yervis, ¿cómo estás?", MOTOR_ACCION, "Hola, ¿cómo estás?"),  # así lo transcribió Whisper
         ("Grimson, ¿estás ahí?", MOTOR_OLLAMA, "¿estás ahí?"),  # error típico de transcripción
     ],
 )
@@ -25,6 +24,11 @@ def test_detecta_el_nombre_y_limpia_el_mensaje(texto, motor, resto):
 @pytest.mark.parametrize("texto", ["¿Qué hora es?", "El crimen no paga", "Mañana compro pan"])
 def test_sin_nombre_no_activa(texto):
     assert detectar_nombre(texto)[0] is None
+
+
+def test_decir_jarvis_ya_no_activa_nada():
+    """El agente automático "Jarvis" se eliminó: solo quedan Crimson y Clover."""
+    assert detectar_nombre("Jarvis, ¿qué hora es?")[0] is None
 
 
 class RelojFalso:
