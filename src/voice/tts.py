@@ -4,6 +4,11 @@ edge-tts reutiliza el servicio de voz de Microsoft Edge (no es una API oficial
 para desarrolladores, así que puede fallar si Microsoft cambia algo) — por
 eso, si falla, se cae a ElevenLabs igual que antes.
 
+El texto se sintetiza y reproduce oración por oración: la primera empieza a
+sonar en cuanto está lista (sin esperar a que termine de sintetizarse toda la
+respuesta) mientras las siguientes se preparan en segundo plano, para que la
+voz y el texto en pantalla se sientan pegados incluso en respuestas largas.
+
 El audio se reproduce con sounddevice (no como archivo) para poder medir su
 volumen mientras suena: la UI lo usa para iluminar al agente al ritmo de su voz.
 """
@@ -11,6 +16,7 @@ volumen mientras suena: la UI lo usa para iluminar al agente al ritmo de su voz.
 import asyncio
 import io
 import os
+import queue
 import re
 import threading
 
@@ -49,6 +55,7 @@ _EMOJIS = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00
 _ENLACES = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _MARCAS_INICIO_LINEA = re.compile(r"^\s*(?:- \[[ x]\]\s*|#+\s*|[-*•]\s+|\d+[.)]\s+)", re.MULTILINE)
 _SIMBOLOS_MARKDOWN = re.compile(r"[*_`#>|]")
+_LIMITE_ORACION = re.compile(r"(?<=[.!?])\s+")
 
 
 def limpiar_para_voz(texto: str) -> str:
@@ -58,6 +65,12 @@ def limpiar_para_voz(texto: str) -> str:
     texto = _SIMBOLOS_MARKDOWN.sub("", texto)
     texto = _EMOJIS.sub("", texto)
     return re.sub(r"\s+", " ", texto).strip()
+
+
+def _partir_en_oraciones(texto: str) -> list[str]:
+    """Divide en oraciones: la primera puede empezar a sonar sin esperar el resto de la respuesta."""
+    partes = [p for p in _LIMITE_ORACION.split(texto) if p.strip()]
+    return partes or [texto]
 
 
 def _elegir_voz(motor: str | None, variables_por_motor: dict[str, str], variable_generica: str, por_defecto: str) -> str:
@@ -81,27 +94,43 @@ class MedidorDeVolumen:
         self.nivel = 0.0
 
 
+# Centinela: marca en la cola que ya no queda más audio por reproducir.
+_FIN_DE_AUDIO = object()
+
+
 def hablar(texto: str, motor: str | None = None, medidor: MedidorDeVolumen | None = None) -> None:
-    """Convierte texto a voz y lo reproduce: primero edge-tts (gratis), y si falla, ElevenLabs.
+    """Convierte texto a voz y lo reproduce, oración por oración.
 
     Si se indica `motor` ("ollama"/"gemini"), usa la voz configurada para ese
-    motor en cada servicio. Si ambos fallan (sin internet, sin API key de
-    respaldo, etc.), no crashea: avisa por consola y muestra el texto para
-    que la conversación continúe. Con `medidor`, va publicando ahí el volumen
-    de lo que suena.
+    motor en cada servicio (primero edge-tts, con ElevenLabs como respaldo
+    por oración). Si ambos fallan para toda la respuesta, no crashea: avisa
+    por consola y muestra el texto para que la conversación continúe. Con
+    `medidor`, va publicando ahí el volumen de lo que suena.
     """
     texto = limpiar_para_voz(texto)
     if not texto:
         return
 
-    audio = _sintetizar_edge_tts(texto, motor)
-    if audio is None:
-        audio = _sintetizar_elevenlabs(texto, motor)
-    if audio is None:
-        print(f"[aviso] No se pudo sintetizar voz (edge-tts y ElevenLabs fallaron), mostrando texto en su lugar:\n{texto}")
-        return
+    oraciones = _partir_en_oraciones(texto)
+    fragmentos: queue.Queue = queue.Queue()
+    hilo = threading.Thread(target=_sintetizar_oraciones, args=(oraciones, motor, fragmentos), daemon=True)
+    hilo.start()
+    _reproducir_secuencia(fragmentos, medidor)
 
-    _reproducir(audio, medidor)
+
+def _sintetizar_oraciones(oraciones: list[str], motor: str | None, fragmentos: queue.Queue) -> None:
+    """Sintetiza cada oración (edge-tts, con ElevenLabs de respaldo) y la va poniendo en la cola."""
+    hubo_audio = False
+    for oracion in oraciones:
+        audio = _sintetizar_edge_tts(oracion, motor)
+        if audio is None:
+            audio = _sintetizar_elevenlabs(oracion, motor)
+        if audio is not None:
+            fragmentos.put(audio)
+            hubo_audio = True
+    if not hubo_audio:
+        print(f"[aviso] No se pudo sintetizar voz (edge-tts y ElevenLabs fallaron), mostrando texto en su lugar:\n{' '.join(oraciones)}")
+    fragmentos.put(_FIN_DE_AUDIO)
 
 
 async def _pedir_audio_edge_tts(texto: str, voz: str) -> np.ndarray:
@@ -151,19 +180,38 @@ def _sintetizar_elevenlabs(texto: str, motor: str | None) -> np.ndarray | None:
     return decode_audio(io.BytesIO(respuesta.content), sampling_rate=TASA_REPRODUCCION)
 
 
-def _reproducir(audio: np.ndarray, medidor: MedidorDeVolumen | None) -> None:
-    posicion = 0
+def _reproducir_secuencia(fragmentos: queue.Queue, medidor: MedidorDeVolumen | None) -> None:
+    """Reproduce fragmentos de audio uno tras otro según van llegando, sin cortes entre ellos.
+
+    Si la siguiente oración todavía se está sintetizando cuando termina la
+    anterior, rellena con silencio en vez de cortar la reproducción — un
+    respiro breve es preferible a que la voz se corte a medias.
+    """
     terminado = threading.Event()
+    restante = np.zeros(0, dtype="float32")
+    agotado = False
 
     def callback(salida, frames, tiempo, estado):
-        nonlocal posicion
-        bloque = audio[posicion : posicion + frames]
-        posicion += len(bloque)
-        salida[: len(bloque), 0] = bloque
-        salida[len(bloque) :, 0] = 0
-        if medidor is not None and len(bloque):
-            medidor.nivel = min(1.0, float(np.sqrt(np.mean(bloque**2))) / RMS_VOZ_FUERTE)
-        if len(bloque) < frames:
+        nonlocal restante, agotado
+        llenado = 0
+        while llenado < frames and not agotado:
+            if restante.size == 0:
+                try:
+                    fragmento = fragmentos.get_nowait()
+                except queue.Empty:
+                    break  # la siguiente oración aún no está lista
+                if fragmento is _FIN_DE_AUDIO:
+                    agotado = True
+                    break
+                restante = fragmento
+            tomar = min(frames - llenado, restante.size)
+            salida[llenado : llenado + tomar, 0] = restante[:tomar]
+            restante = restante[tomar:]
+            llenado += tomar
+        salida[llenado:, 0] = 0
+        if medidor is not None:
+            medidor.nivel = min(1.0, float(np.sqrt(np.mean(salida[:llenado, 0] ** 2))) / RMS_VOZ_FUERTE) if llenado else 0.0
+        if agotado and llenado == 0:
             raise sd.CallbackStop
 
     try:
