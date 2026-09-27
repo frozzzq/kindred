@@ -62,8 +62,9 @@ def test_solo_el_nombre_abre_la_ventana_sin_responder():
     app._atender_voz.assert_not_called()
 
 
-def test_mientras_hay_un_turno_en_curso_no_atiende_frases():
-    app, patcher = _app_escuchando("Crimson, hola")
+def test_frase_sin_nombre_con_turno_en_curso_se_ignora():
+    """Sin su nombre, mientras habla probablemente es su propio eco: no lo interrumpe."""
+    app, patcher = _app_escuchando("sigo hablando")
     app._turno.acquire()  # simula un turno ya en curso
     try:
         app._al_escuchar_frase(audio=None)
@@ -72,6 +73,29 @@ def test_mientras_hay_un_turno_en_curso_no_atiende_frases():
         patcher.stop()
 
     app._atender_voz.assert_not_called()
+    assert not app._interrumpir.is_set()
+
+
+def test_llamarlo_de_nuevo_con_turno_en_curso_lo_interrumpe():
+    app, patcher = _app_escuchando("Crimson, olvida eso")
+    app._turno.acquire()  # simula un turno ya en curso (el agente está "hablando")
+    try:
+        hilo = threading.Thread(target=app._al_escuchar_frase, args=(None,), daemon=True)
+        hilo.start()
+        hilo.join(timeout=0.2)
+
+        assert hilo.is_alive()  # sigue esperando a que se libere el turno interrumpido
+        assert app._interrumpir.is_set()  # pero ya marcó la interrupción de inmediato
+        app._atender_voz.assert_not_called()  # todavía no: falta que se libere el turno
+
+        app._turno.release()
+        hilo.join(timeout=1)
+
+        assert not hilo.is_alive()
+    finally:
+        patcher.stop()
+
+    app._atender_voz.assert_called_once_with("olvida eso")
 
 
 def test_mientras_graba_por_microfono_manual_no_atiende_frases():
@@ -160,3 +184,65 @@ def test_sin_boveda_configurada_el_grafo_queda_vacio_sin_fallar(_mock_firma):
     asyncio.run(app._revisar_boveda())
 
     assert app.grafo._nucleos == []
+
+
+# --- interrupción ---
+
+
+def test_tocar_microfono_mientras_ocupado_interrumpe_y_empieza_a_grabar():
+    app = JarvisApp(MagicMock())
+    app.grabadora = MagicMock(grabando=False)
+    app.escucha = MagicMock()
+    app.ocupado = True
+
+    app.tocar_microfono(None)
+
+    assert app._interrumpir.is_set()
+    app.escucha.pausar.assert_called_once()
+    app.grabadora.iniciar.assert_called_once()
+
+
+def test_tocar_microfono_sin_estar_ocupado_no_marca_interrupcion():
+    app = JarvisApp(MagicMock())
+    app.grabadora = MagicMock(grabando=False)
+    app.escucha = MagicMock()
+
+    app.tocar_microfono(None)
+
+    assert not app._interrumpir.is_set()
+    app.grabadora.iniciar.assert_called_once()
+
+
+# --- cerrar la aplicación ---
+
+
+@patch("src.ui.app.hablar")
+@patch("src.ui.app.procesar_comando")
+def test_atender_voz_cierra_la_ventana_si_la_respuesta_lo_pide(mock_procesar, _mock_hablar):
+    app = JarvisApp(MagicMock())
+    mock_procesar.return_value = Respuesta(texto="Hasta luego.", motor=MOTOR_ACCION, cerrar=True)
+
+    app._atender_voz("ciérrate")
+
+    app.page.run_task.assert_called_once_with(app.page.window.close)
+
+
+@patch("src.ui.app.procesar_comando")
+def test_atender_voz_no_cierra_la_ventana_si_no_se_lo_piden(mock_procesar):
+    app = JarvisApp(MagicMock())
+    mock_procesar.return_value = Respuesta(texto="ok", motor=MOTOR_OLLAMA, cerrar=False)
+
+    with patch("src.ui.app.hablar"):
+        app._atender_voz("hola")
+
+    app.page.run_task.assert_not_called()
+
+
+@patch("src.ui.app.procesar_comando")
+def test_procesar_chat_cierra_la_ventana_si_la_respuesta_lo_pide(mock_procesar):
+    app = JarvisApp(MagicMock())
+    mock_procesar.return_value = Respuesta(texto="Hasta luego.", motor=MOTOR_ACCION, cerrar=True)
+
+    app._procesar_chat("ciérrate")
+
+    app.page.run_task.assert_called_once_with(app.page.window.close)

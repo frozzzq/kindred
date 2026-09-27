@@ -150,9 +150,12 @@ calculadora" abre la app directamente (lista blanca fija en
 Ollama/Gemini, porque ellos no pueden ejecutar acciones reales. Un comando
 tipo "busca en internet..." activa el grounding con Google Search de
 Gemini para respuestas basadas en resultados reales, no solo en su
-conocimiento estático. **Toda acción (abrir una app) pide confirmación
-explícita antes de ejecutarse** — por texto en el CLI de texto, por voz
-("di sí o no") en el CLI de voz.
+conocimiento estático. Un comando tipo "ciérrate" o "cierra la aplicación"
+termina el programa (o cierra la ventana en la UI) — detectado por
+palabras clave (`es_cierre` en `intent_router.py`), sin pasar por ningún
+motor de IA. **Toda acción (abrir una app, cerrar la aplicación) pide
+confirmación explícita antes de ejecutarse** — por texto en el CLI de
+texto, por voz ("di sí o no") en el CLI de voz.
 
 **Búsqueda web auxiliar para Ollama:** Ollama no tiene acceso nativo a
 internet (a diferencia de Gemini). Cuando un comando de búsqueda termina
@@ -203,11 +206,19 @@ ni servidor separado), con dos apartados en la barra inferior:
   - El nombre lo detecta Whisper (escucha continua + tolerancia a errores
     de transcripción como "Grimson"/"Cloba"), así que usa algo de CPU y
     puede activarse si mencionas el nombre en una plática.
-  - Mientras el agente piensa y habla, la escucha se pausa (si no, se
-    oiría a sí mismo y se contestaría en bucle). Las confirmaciones
-    (abrir apps) se responden por voz: "sí" o "no".
+  - **Interrumpir al agente:** mientras piensa o habla, se le puede cortar
+    y decirle otra cosa — tocando el micrófono (sin riesgo, siempre
+    funciona) o llamándolo de nuevo por su nombre. La escucha sigue activa
+    durante toda la respuesta para que esto funcione, con el costo de que
+    a veces puede "oír" su propio eco por las bocinas: una frase sin su
+    nombre mientras habla se ignora (para no contestarse a sí mismo en
+    bucle), pero si el eco llega a incluir su nombre podría autointerrumpirse
+    (raro, pero posible sin cancelación de eco de hardware).
+  - Las confirmaciones (abrir apps, cerrar la aplicación) se responden por
+    voz: "sí" o "no".
   - El micrófono manual sigue disponible: tocar para empezar, tocar para
-    terminar.
+    terminar (y también interrumpe si se toca mientras el agente está
+    ocupado).
 - **Chat:** conversación por texto (incluye también lo dicho por voz).
 
 Arriba se elige el agente a mano (o diciendo su nombre): **Crimson**

@@ -7,7 +7,9 @@ Dos apartados en páginas separadas:
   la voz del agente. Se le habla llamándolo por su nombre ("Crimson, ...")
   — eso abre una ventana de conversación de un minuto en la que ya no hace
   falta repetir el nombre — o con el micrófono (tocar para empezar, tocar
-  para terminar).
+  para terminar). Se le puede interrumpir a medio hablar (llamándolo de
+  nuevo, o tocando el micrófono) para decirle otra cosa, y se le puede
+  pedir que cierre la aplicación (con confirmación de por medio).
 - Chat: conversación por texto.
 
 El agente se elige a mano arriba o diciendo su nombre: Crimson fuerza
@@ -28,7 +30,7 @@ from src.obsidian.grafo import construir_grafo, firma_boveda
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA, nombre_motor
 from src.ui.grafo3d import GrafoAgente
 from src.ui.paletas import PALETAS, Paleta
-from src.voice.activacion import VentanaConversacion
+from src.voice.activacion import VentanaConversacion, detectar_nombre
 from src.voice.escucha_continua import EscuchaContinua
 from src.voice.stt import Grabadora, grabar_hasta_silencio, transcribir
 from src.voice.tts import MedidorDeVolumen, hablar
@@ -57,6 +59,8 @@ class JarvisApp:
         self._turno = threading.Lock()
         self._aviso: str | None = None
         self._aviso_hasta = 0.0
+        # Se activa para cortar al agente a medio hablar (interrupción).
+        self._interrumpir = threading.Event()
         self.medidor = MedidorDeVolumen()
         self._firma_boveda: tuple | None = None
 
@@ -322,15 +326,20 @@ class JarvisApp:
     # --- voz ---
 
     def _al_escuchar_frase(self, audio) -> None:
-        """Llega una frase de la escucha continua: ¿llamaron al agente o sigue abierta la ventana?"""
+        """Llega una frase de la escucha continua (incluso mientras el agente habla, para poder
+        interrumpirlo llamándolo de nuevo): ¿llamaron al agente o sigue abierta la ventana?"""
+        if self.grabadora.grabando:
+            return  # el micrófono manual ya se está encargando de esto
+        texto = transcribir(audio, filtrar_ruido=True)
+        if not texto:
+            return
+        motor_nombrado, _resto = detectar_nombre(texto)
         if not self._turno.acquire(blocking=False):
-            return  # ya hay un turno en curso (esta misma escucha, el chat o el micrófono manual)
+            if motor_nombrado is None:
+                return  # turno en curso y no lo llamaron por su nombre: probablemente es su propio eco
+            self._interrumpir.set()  # lo volvieron a llamar a medio hablar: cortarlo y atenderlo
+            self._turno.acquire()  # espera a que el turno interrumpido suelte el lock de verdad
         try:
-            if self.grabadora.grabando:
-                return
-            texto = transcribir(audio, filtrar_ruido=True)
-            if not texto:
-                return
             agente, mensaje = self.ventana.procesar(texto)
             if agente is None:
                 return  # no le hablaban al asistente
@@ -345,9 +354,9 @@ class JarvisApp:
             self._turno.release()
 
     def tocar_microfono(self, e) -> None:
-        if self.ocupado:
-            return
         if not self.grabadora.grabando:
+            if self.ocupado:
+                self._interrumpir.set()  # corta al agente a medio hablar/pensar
             self.escucha.pausar()
             self.grabadora.iniciar()
             self.icono_micro.icon = ft.Icons.STOP_ROUNDED
@@ -374,10 +383,16 @@ class JarvisApp:
             self._terminar_turno_de_voz()
 
     def _atender_voz(self, texto: str) -> None:
-        """Responde a lo dicho por voz (por el micrófono o llamando al agente por su nombre)."""
+        """Responde a lo dicho por voz (por el micrófono o llamando al agente por su nombre).
+
+        La escucha sigue activa mientras piensa y habla, así que se le
+        puede volver a llamar por su nombre para interrumpirlo y decirle
+        otra cosa (ver _al_escuchar_frase). El costo es que puede oír su
+        propio eco: por eso una frase sin su nombre durante un turno en
+        curso se ignora en vez de contestarse a sí mismo en bucle.
+        """
         self.ocupado = True
-        # Mientras piensa y habla no se escucha: se oiría a sí mismo y se contestaría en bucle.
-        self.escucha.pausar()
+        self._interrumpir.clear()
         try:
             self.ultimo_usuario.value = f"Tú: {texto}"
             self.ultima_respuesta.value = ""
@@ -402,7 +417,9 @@ class JarvisApp:
             self.grafo.empezar_a_hablar(motor_mostrado)
             self.page.update()
 
-            hablar(respuesta.texto, motor=motor_mostrado, medidor=self.medidor)
+            hablar(respuesta.texto, motor=motor_mostrado, medidor=self.medidor, detener=self._interrumpir)
+            if respuesta.cerrar:
+                self.page.run_task(self.page.window.close)
         finally:
             self._terminar_turno_de_voz()
 
@@ -443,6 +460,8 @@ class JarvisApp:
                 motor_mostrado = self._motor_mostrado(respuesta.motor)
                 paleta = PALETAS.get(motor_mostrado, self._paleta_actual())
                 self._agregar_al_historial(nombre_motor(motor_mostrado), respuesta.texto, paleta.principal)
+                if respuesta.cerrar:
+                    self.page.run_task(self.page.window.close)
             finally:
                 self.ocupado = False
                 self.estado_chat.value = ""

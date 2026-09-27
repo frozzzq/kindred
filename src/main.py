@@ -32,6 +32,7 @@ from src.router.intent_router import (
     MOTOR_OLLAMA,
     decidir_motor,
     es_busqueda_web,
+    es_cierre,
     extraer_nombre_app,
     nombre_motor,
 )
@@ -44,10 +45,15 @@ class Respuesta:
     El motor real puede diferir del elegido por el router si hubo fallback
     (ej. el router eligió Gemini pero falló y respondió Ollama). Se necesita
     saber cuál respondió de verdad para, por ejemplo, elegir la voz correcta.
+
+    cerrar=True indica que el usuario pidió cerrar la aplicación (y lo
+    confirmó): quien llame a procesar_comando debe terminar el programa (o
+    cerrar la ventana) después de mostrar/decir esta respuesta.
     """
 
     texto: str
     motor: str
+    cerrar: bool = False
 
 
 def _responder(
@@ -56,13 +62,14 @@ def _responder(
     motor: str,
     conversacion: Conversacion,
     herramientas_usadas: list[str] | None = None,
+    cerrar: bool = False,
 ) -> Respuesta:
     respuesta = quitar_muletilla_final(respuesta)
     evaluar_guardado(texto, respuesta, motor)
     if motor != MOTOR_ACCION:
         aprender_si_quedo_sin_guardar(texto, herramientas_usadas or [])
     conversacion.agregar_turno(texto, respuesta)
-    return Respuesta(texto=respuesta, motor=motor)
+    return Respuesta(texto=respuesta, motor=motor, cerrar=cerrar)
 
 
 def procesar_comando(
@@ -79,6 +86,11 @@ def procesar_comando(
     conversacion guarda los turnos previos; sin ella, cada mensaje es independiente.
     """
     conversacion = conversacion or Conversacion()
+
+    if es_cierre(texto):
+        if confirmador("¿Confirmas que quieres que cierre la aplicación?"):
+            return _responder(texto, "De acuerdo, hasta luego.", MOTOR_ACCION, conversacion, cerrar=True)
+        return _responder(texto, "Cancelado, sigo aquí.", MOTOR_ACCION, conversacion)
 
     nombre_app = extraer_nombre_app(texto)
     if nombre_app:
@@ -163,6 +175,8 @@ def main() -> None:
             break
         respuesta = procesar_comando(texto, conversacion=conversacion)
         print(f"{nombre_motor(respuesta.motor)}: {respuesta.texto}")
+        if respuesta.cerrar:
+            break
 
 
 if __name__ == "__main__":

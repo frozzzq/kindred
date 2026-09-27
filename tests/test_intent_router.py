@@ -4,6 +4,7 @@ from src.router.intent_router import (
     MOTOR_OLLAMA,
     decidir_motor,
     es_busqueda_web,
+    es_cierre,
     extraer_nombre_app,
     nombre_motor,
 )
@@ -65,3 +66,14 @@ def test_nombre_motor_accion_es_jarvis():
 
 def test_nombre_motor_desconocido_cae_a_jarvis():
     assert nombre_motor("algo_raro") == "Jarvis"
+
+
+def test_es_cierre_detecta_frases_para_cerrar():
+    assert es_cierre("ciérrate") is True
+    assert es_cierre("Cierra la aplicación, por favor") is True
+    assert es_cierre("apágate") is True
+
+
+def test_es_cierre_sin_frase_de_cierre():
+    assert es_cierre("recuérdame comprar leche") is False
+    assert es_cierre("no cierres nada") is False

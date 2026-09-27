@@ -98,7 +98,12 @@ class MedidorDeVolumen:
 _FIN_DE_AUDIO = object()
 
 
-def hablar(texto: str, motor: str | None = None, medidor: MedidorDeVolumen | None = None) -> None:
+def hablar(
+    texto: str,
+    motor: str | None = None,
+    medidor: MedidorDeVolumen | None = None,
+    detener: threading.Event | None = None,
+) -> None:
     """Convierte texto a voz y lo reproduce, oración por oración.
 
     Si se indica `motor` ("ollama"/"gemini"), usa la voz configurada para ese
@@ -106,6 +111,10 @@ def hablar(texto: str, motor: str | None = None, medidor: MedidorDeVolumen | Non
     por oración). Si ambos fallan para toda la respuesta, no crashea: avisa
     por consola y muestra el texto para que la conversación continúe. Con
     `medidor`, va publicando ahí el volumen de lo que suena.
+
+    `detener` permite interrumpir a medio hablar (ej. si lo llamaron de
+    nuevo por su nombre): al activarse ese evento, se corta la reproducción
+    y se deja de sintetizar lo que faltaba, casi de inmediato.
     """
     texto = limpiar_para_voz(texto)
     if not texto:
@@ -113,15 +122,19 @@ def hablar(texto: str, motor: str | None = None, medidor: MedidorDeVolumen | Non
 
     oraciones = _partir_en_oraciones(texto)
     fragmentos: queue.Queue = queue.Queue()
-    hilo = threading.Thread(target=_sintetizar_oraciones, args=(oraciones, motor, fragmentos), daemon=True)
+    hilo = threading.Thread(target=_sintetizar_oraciones, args=(oraciones, motor, fragmentos, detener), daemon=True)
     hilo.start()
-    _reproducir_secuencia(fragmentos, medidor)
+    _reproducir_secuencia(fragmentos, medidor, detener)
 
 
-def _sintetizar_oraciones(oraciones: list[str], motor: str | None, fragmentos: queue.Queue) -> None:
+def _sintetizar_oraciones(
+    oraciones: list[str], motor: str | None, fragmentos: queue.Queue, detener: threading.Event | None = None
+) -> None:
     """Sintetiza cada oración (edge-tts, con ElevenLabs de respaldo) y la va poniendo en la cola."""
     hubo_audio = False
     for oracion in oraciones:
+        if detener is not None and detener.is_set():
+            break  # lo interrumpieron: no tiene caso seguir sintetizando lo que ya no se va a decir
         audio = _sintetizar_edge_tts(oracion, motor)
         if audio is None:
             audio = _sintetizar_elevenlabs(oracion, motor)
@@ -180,12 +193,15 @@ def _sintetizar_elevenlabs(texto: str, motor: str | None) -> np.ndarray | None:
     return decode_audio(io.BytesIO(respuesta.content), sampling_rate=TASA_REPRODUCCION)
 
 
-def _reproducir_secuencia(fragmentos: queue.Queue, medidor: MedidorDeVolumen | None) -> None:
+def _reproducir_secuencia(
+    fragmentos: queue.Queue, medidor: MedidorDeVolumen | None, detener: threading.Event | None = None
+) -> None:
     """Reproduce fragmentos de audio uno tras otro según van llegando, sin cortes entre ellos.
 
     Si la siguiente oración todavía se está sintetizando cuando termina la
     anterior, rellena con silencio en vez de cortar la reproducción — un
-    respiro breve es preferible a que la voz se corte a medias.
+    respiro breve es preferible a que la voz se corte a medias. Si se
+    activa `detener`, corta la reproducción de inmediato (interrupción).
     """
     terminado = threading.Event()
     restante = np.zeros(0, dtype="float32")
@@ -193,6 +209,8 @@ def _reproducir_secuencia(fragmentos: queue.Queue, medidor: MedidorDeVolumen | N
 
     def callback(salida, frames, tiempo, estado):
         nonlocal restante, agotado
+        if detener is not None and detener.is_set():
+            agotado = True
         llenado = 0
         while llenado < frames and not agotado:
             if restante.size == 0:

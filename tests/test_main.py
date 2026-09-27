@@ -186,3 +186,24 @@ def test_motor_forzado_no_impide_abrir_apps(mock_abrir):
 
     mock_abrir.assert_called_once_with("paint")
     assert resultado.motor == MOTOR_ACCION
+
+
+def test_cerrar_confirmado_marca_la_respuesta_para_cerrar():
+    resultado = procesar_comando("ciérrate", confirmador=lambda descripcion: True)
+
+    assert resultado.cerrar is True
+    assert resultado.motor == MOTOR_ACCION
+
+
+def test_cerrar_sin_confirmar_no_marca_nada():
+    resultado = procesar_comando("ciérrate", confirmador=lambda descripcion: False)
+
+    assert resultado.cerrar is False
+    assert "ancel" in resultado.texto.lower()
+
+
+@patch("src.main.conversar_ollama")
+def test_cerrar_no_llega_a_preguntarle_a_ningun_motor(mock_ollama):
+    procesar_comando("cierra la aplicación", confirmador=lambda descripcion: True)
+
+    mock_ollama.assert_not_called()

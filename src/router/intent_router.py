@@ -36,6 +36,13 @@ PREFIJOS_ABRIR = ("abre ", "abrir ")
 ARTICULOS = ("el ", "la ", "los ", "las ")
 SIGNOS_A_QUITAR = " .,;:!¡?¿'\""
 
+FRASES_CIERRE = (
+    "ciérrate", "cierrate",
+    "cierra la aplicación", "cierra la aplicacion",
+    "cierra la app", "cierra el programa",
+    "apágate", "apagate",
+)
+
 
 def decidir_motor(texto: str) -> str:
     """Decide qué motor debe atender el texto, según palabras clave simples.
@@ -58,6 +65,12 @@ def es_busqueda_web(texto: str) -> bool:
     """Indica si el comando pide buscar algo en internet (activa grounding en Gemini)."""
     texto_normalizado = texto.lower()
     return any(palabra in texto_normalizado for palabra in PALABRAS_CLAVE_BUSQUEDA_WEB)
+
+
+def es_cierre(texto: str) -> bool:
+    """Indica si el comando pide cerrar la aplicación."""
+    texto_normalizado = texto.lower().strip(SIGNOS_A_QUITAR)
+    return any(frase in texto_normalizado for frase in FRASES_CIERRE)
 
 
 def extraer_nombre_app(texto: str) -> str | None:

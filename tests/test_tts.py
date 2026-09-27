@@ -1,4 +1,5 @@
 import queue
+import threading
 from unittest.mock import MagicMock, patch
 
 import edge_tts
@@ -238,6 +239,74 @@ def test_reproducir_secuencia_espera_sin_cortar_si_la_siguiente_oracion_tarda():
 
     assert _SalidaDeAudioFalsa.niveles[0] == 0.0  # silencio mientras "tardaba", no corte
     assert max(_SalidaDeAudioFalsa.niveles) == 1.0  # la oración llegó y sonó después
+
+
+def test_reproducir_secuencia_no_reproduce_nada_si_ya_esta_detenido():
+    """Interrupción marcada antes de empezar (ej. al tocar el micrófono): no debe sonar nada."""
+    medidor = tts.MedidorDeVolumen()
+    detener = threading.Event()
+    detener.set()
+    cola = queue.Queue()
+    cola.put(np.full(300, 0.2, dtype="float32"))
+    cola.put(tts._FIN_DE_AUDIO)
+    _SalidaDeAudioFalsa.niveles = []
+
+    with patch("src.voice.tts.sd.OutputStream", side_effect=lambda **kw: _SalidaDeAudioFalsa(medidor=medidor, **kw)):
+        tts._reproducir_secuencia(cola, medidor, detener)
+
+    assert _SalidaDeAudioFalsa.niveles == []  # se detuvo en el primer callback, antes de sonar nada
+    assert medidor.nivel == 0.0
+
+
+def test_reproducir_secuencia_se_corta_al_activar_detener_a_medio_reproducir():
+    medidor = tts.MedidorDeVolumen()
+    detener = threading.Event()
+    cola = queue.Queue()
+    cola.put(np.full(100_000, 0.2, dtype="float32"))  # audio largo: si no se corta, tomaría muchas vueltas
+    cola.put(tts._FIN_DE_AUDIO)
+    _SalidaDeAudioFalsa.niveles = []
+
+    class _SalidaQueInterrumpeTrasElPrimerBloque(_SalidaDeAudioFalsa):
+        def __enter__(self):
+            salida = np.zeros((200, 1), dtype="float32")
+            try:
+                self._callback(salida, 200, None, None)
+                self.niveles.append(self._medidor.nivel)
+                detener.set()  # el usuario interrumpe justo después del primer bloque reproducido
+                while True:
+                    self._callback(salida, 200, None, None)
+                    self.niveles.append(self._medidor.nivel)
+            except sd.CallbackStop:
+                pass
+            self._terminar()
+            return self
+
+    with patch(
+        "src.voice.tts.sd.OutputStream",
+        side_effect=lambda **kw: _SalidaQueInterrumpeTrasElPrimerBloque(medidor=medidor, **kw),
+    ):
+        tts._reproducir_secuencia(cola, medidor, detener)
+
+    assert len(_SalidaDeAudioFalsa.niveles) <= 2  # se cortó casi de inmediato, no consumió el audio "largo"
+    assert medidor.nivel == 0.0
+
+
+def test_sintetizar_oraciones_se_detiene_si_lo_interrumpen():
+    detener = threading.Event()
+
+    def falso_edge_tts(oracion, _motor):
+        if oracion == "Segunda.":
+            detener.set()  # se interrumpe mientras se sintetiza esta oración
+        return np.array([1.0])
+
+    cola = queue.Queue()
+    with patch("src.voice.tts._sintetizar_edge_tts", side_effect=falso_edge_tts):
+        tts._sintetizar_oraciones(["Primera.", "Segunda.", "Tercera."], None, cola, detener)
+
+    fragmentos = []
+    while (item := cola.get()) is not tts._FIN_DE_AUDIO:
+        fragmentos.append(item)
+    assert len(fragmentos) == 2  # "Tercera." ya no se sintetiza: se marcó la interrupción antes de llegar a ella
 
 
 def test_reproducir_secuencia_sin_medidor_no_crashea():
