@@ -133,11 +133,11 @@ def _color(rgb: np.ndarray, opacidad: float) -> str:
 class GrafoAgente:
     """El "cuerpo" del agente en la UI: toma su color, reacciona al escuchar y brilla con su voz."""
 
-    def __init__(self, motor: str) -> None:
+    def __init__(self, motor: str, semilla: int | None = None) -> None:
         self.motor = motor
         self.hablando_como: str | None = None
         self.escuchando = False
-        self.disposicion = Disposicion3D()
+        self.disposicion = Disposicion3D(semilla)
         self.nivel = 0.0  # volumen suavizado de la voz, 0 a 1
         self._nodos: tuple[Nodo, ...] = ()
         self._aristas: tuple[Arista, ...] = ()

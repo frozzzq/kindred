@@ -28,7 +28,9 @@ def _color_de_halo(agente):
 
 
 def _radio_de_halo_con_voz(nivel_voz):
-    agente = _agente()
+    # Semilla fija: solo nos interesa el efecto del volumen, no el acomodo aleatorio del grafo.
+    agente = GrafoAgente(MOTOR_ACCION, semilla=0)
+    agente.mostrar_grafo(GRAFO)
     agente.empezar_a_hablar(MOTOR_ACCION)
     for _ in range(30):
         agente.avanzar(CUADRO, nivel_voz)
