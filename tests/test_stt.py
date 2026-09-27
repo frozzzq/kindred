@@ -37,9 +37,11 @@ def test_transcribir_con_filtro_descarta_segmentos_que_no_son_voz(mock_obtener_m
     assert modelo_mock.transcribe.call_args.kwargs["vad_filter"] is True
 
 
+@patch("src.voice.stt.DetectorDeVoz")
 @patch("src.voice.stt.sd.InputStream")
-def test_grabar_hasta_silencio_para_tras_hablar_y_callar(mock_input_stream):
+def test_grabar_hasta_silencio_para_tras_hablar_y_callar(mock_input_stream, mock_detector_cls):
     mock_input_stream.return_value.__enter__.return_value = MagicMock()
+    mock_detector_cls.return_value.es_voz.side_effect = [True] + [False] * stt.BLOQUES_SILENCIO_PARA_PARAR
 
     bloque_voz = np.full((stt.TAMANO_BLOQUE, 1), 0.5, dtype="float32")
     bloque_silencio = np.zeros((stt.TAMANO_BLOQUE, 1), dtype="float32")

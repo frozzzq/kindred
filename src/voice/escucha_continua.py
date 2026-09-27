@@ -17,23 +17,26 @@ import numpy as np
 import sounddevice as sd
 
 from src.voice.audio import amplificar
-from src.voice.stt import BLOQUES_SILENCIO_PARA_PARAR, TAMANO_BLOQUE, TASA_MUESTREO, UMBRAL_RMS_VOZ
+from src.voice.stt import BLOQUES_SILENCIO_PARA_PARAR, TAMANO_BLOQUE, TASA_MUESTREO
+from src.voice.vad import DetectorDeVoz
 
-BLOQUES_PREVIOS = 3  # 300 ms de audio previo, para no cortar el inicio de la primera palabra
-MIN_BLOQUES_CON_VOZ = 3  # menos de 300 ms con voz es un golpe o un clic, no una frase
-MAX_BLOQUES_POR_FRASE = 150  # 15 s: corta frases eternas (ruido constante)
+BLOQUES_PREVIOS = 9  # ~300 ms de audio previo, para no cortar el inicio de la primera palabra
+MIN_BLOQUES_CON_VOZ = 9  # menos de ~300 ms con voz es un golpe o un clic, no una frase
+MAX_BLOQUES_POR_FRASE = 469  # ~15 s: corta frases eternas (ruido constante)
 
 
 class SegmentadorDeFrases:
     """Acumula bloques de audio y devuelve una frase completa cuando termina."""
 
-    def __init__(self) -> None:
+    def __init__(self, detector_voz: DetectorDeVoz | None = None) -> None:
+        self._detector = detector_voz or DetectorDeVoz()
         self._previos: deque[np.ndarray] = deque(maxlen=BLOQUES_PREVIOS)
         self._frase: list[np.ndarray] = []
         self._con_voz = 0
         self._silencio = 0
 
     def reiniciar(self) -> None:
+        self._detector.reiniciar()
         self._previos.clear()
         self._frase = []
         self._con_voz = 0
@@ -41,7 +44,7 @@ class SegmentadorDeFrases:
 
     def agregar(self, bloque: np.ndarray) -> np.ndarray | None:
         """Procesa un bloque; devuelve la frase completa si con este bloque terminó."""
-        hay_voz = float(np.sqrt(np.mean(bloque**2))) >= UMBRAL_RMS_VOZ
+        hay_voz = self._detector.es_voz(bloque)
         if not self._frase:
             if not hay_voz:
                 self._previos.append(bloque)
@@ -66,9 +69,9 @@ class SegmentadorDeFrases:
 
 
 class EscuchaContinua:
-    def __init__(self, al_escuchar: Callable[[np.ndarray], None]) -> None:
+    def __init__(self, al_escuchar: Callable[[np.ndarray], None], detector_voz: DetectorDeVoz | None = None) -> None:
         self._al_escuchar = al_escuchar
-        self._segmentador = SegmentadorDeFrases()
+        self._segmentador = SegmentadorDeFrases(detector_voz)
         self._stream: sd.InputStream | None = None
         self._pausada = False
 

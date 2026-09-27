@@ -15,14 +15,24 @@ VOZ = np.full(TAMANO_BLOQUE, 0.3, dtype="float32")
 SILENCIO = np.zeros(TAMANO_BLOQUE, dtype="float32")
 
 
+class _DetectorFalso:
+    """Stub de DetectorDeVoz para tests: clasifica por marca (VOZ vs. SILENCIO), no por inferencia real."""
+
+    def es_voz(self, bloque: np.ndarray) -> bool:
+        return bool(np.any(bloque != 0))
+
+    def reiniciar(self) -> None:
+        pass
+
+
 def _alimentar(segmentador, bloques):
     return [f for f in (segmentador.agregar(b) for b in bloques) if f is not None]
 
 
 def test_una_frase_termina_tras_el_silencio():
-    segmentador = SegmentadorDeFrases()
+    segmentador = SegmentadorDeFrases(detector_voz=_DetectorFalso())
 
-    frases = _alimentar(segmentador, [SILENCIO] * 5 + [VOZ] * 10 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR)
+    frases = _alimentar(segmentador, [SILENCIO] * BLOQUES_PREVIOS + [VOZ] * 10 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR)
 
     assert len(frases) == 1
     # incluye el audio previo a la voz (para no cortar la primera palabra) y la voz completa
@@ -30,21 +40,23 @@ def test_una_frase_termina_tras_el_silencio():
 
 
 def test_solo_silencio_no_produce_frases():
-    assert _alimentar(SegmentadorDeFrases(), [SILENCIO] * 100) == []
+    assert _alimentar(SegmentadorDeFrases(detector_voz=_DetectorFalso()), [SILENCIO] * 100) == []
 
 
 def test_un_golpe_corto_no_es_una_frase():
-    assert _alimentar(SegmentadorDeFrases(), [VOZ] * 2 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR) == []
+    segmentador = SegmentadorDeFrases(detector_voz=_DetectorFalso())
+    assert _alimentar(segmentador, [VOZ] * 2 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR) == []
 
 
 def test_una_pausa_corta_no_parte_la_frase():
     bloques = [VOZ] * 5 + [SILENCIO] * (BLOQUES_SILENCIO_PARA_PARAR - 2) + [VOZ] * 5 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR
 
-    assert len(_alimentar(SegmentadorDeFrases(), bloques)) == 1
+    assert len(_alimentar(SegmentadorDeFrases(detector_voz=_DetectorFalso()), bloques)) == 1
 
 
 def test_ruido_constante_se_corta_en_el_maximo():
-    frases = _alimentar(SegmentadorDeFrases(), [VOZ] * (MAX_BLOQUES_POR_FRASE + 1))
+    segmentador = SegmentadorDeFrases(detector_voz=_DetectorFalso())
+    frases = _alimentar(segmentador, [VOZ] * (MAX_BLOQUES_POR_FRASE + 1))
 
     assert len(frases) == 1
 
@@ -53,7 +65,7 @@ def test_ruido_constante_se_corta_en_el_maximo():
 @patch("src.voice.escucha_continua.threading.Thread")
 def test_pausada_no_escucha_nada(mock_hilo, _amplificar):
     """Mientras el agente habla no debe oírse a sí mismo."""
-    escucha = EscuchaContinua(al_escuchar=lambda audio: None)
+    escucha = EscuchaContinua(al_escuchar=lambda audio: None, detector_voz=_DetectorFalso())
     escucha.pausar()
 
     for bloque in [VOZ] * 10 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR:
@@ -66,7 +78,7 @@ def test_pausada_no_escucha_nada(mock_hilo, _amplificar):
 @patch("src.voice.escucha_continua.threading.Thread")
 def test_entrega_la_frase_al_callback(mock_hilo, _amplificar):
     recibido = []
-    escucha = EscuchaContinua(al_escuchar=recibido.append)
+    escucha = EscuchaContinua(al_escuchar=recibido.append, detector_voz=_DetectorFalso())
 
     for bloque in [VOZ] * 10 + [SILENCIO] * BLOQUES_SILENCIO_PARA_PARAR:
         escucha._callback(bloque.reshape(-1, 1), TAMANO_BLOQUE, None, None)

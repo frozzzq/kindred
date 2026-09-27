@@ -14,15 +14,13 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 
 from src.voice.audio import amplificar
+from src.voice.vad import DetectorDeVoz
 
 TASA_MUESTREO = 16000
 TAMANO_MODELO = "base"
 
-TAMANO_BLOQUE = 1600  # 100 ms a 16kHz
-# Threshold de energía RMS para detectar voz (no ruido amplificado).
-# 0.02 es muy bajo si hay ganancia del micrófono aplicada; 0.04 es más robusto.
-UMBRAL_RMS_VOZ = 0.04
-BLOQUES_SILENCIO_PARA_PARAR = 12  # ~1.2s de silencio tras haber hablado
+TAMANO_BLOQUE = 512  # tamaño nativo de ventana de Silero VAD, 32ms a 16kHz
+BLOQUES_SILENCIO_PARA_PARAR = 38  # ~1.2s de silencio tras haber hablado
 DURACION_MAXIMA_SEGUNDOS = 15
 
 _modelo: WhisperModel | None = None
@@ -93,16 +91,17 @@ def grabar_hasta_silencio() -> np.ndarray:
     bloques: list[np.ndarray] = []
     bloqueo = threading.Lock()
     detener = threading.Event()
+    detector = DetectorDeVoz()
     estado = {"hablo": False, "bloques_silencio": 0, "total_bloques": 0}
 
     def callback(datos_entrada, frames, tiempo, flags):
         with bloqueo:
             datos_amplificados = amplificar(datos_entrada.copy())
             bloques.append(datos_amplificados)
-            rms = float(np.sqrt(np.mean(datos_amplificados**2)))
+            hay_voz = detector.es_voz(datos_amplificados[:, 0])
             estado["total_bloques"] += 1
 
-            if rms >= UMBRAL_RMS_VOZ:
+            if hay_voz:
                 estado["hablo"] = True
                 estado["bloques_silencio"] = 0
             elif estado["hablo"]:
