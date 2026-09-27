@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+import numpy as np
+import sounddevice as sd
 
 from src.voice import tts
 
@@ -27,20 +29,59 @@ def test_hablar_manda_el_texto_ya_limpio(mock_post, monkeypatch):
     assert mock_post.call_args.kwargs["json"]["text"] == "Hola"
 
 
-@patch("src.voice.tts.playsound")
+@patch("src.voice.tts._reproducir")
+@patch("src.voice.tts.decode_audio")
 @patch("src.voice.tts.httpx.post")
-def test_hablar_reproduce_audio_exitoso(mock_post, mock_playsound, monkeypatch):
+def test_hablar_reproduce_audio_exitoso(mock_post, mock_decodificar, mock_reproducir, monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "clave-de-prueba")
 
     mock_respuesta = MagicMock()
     mock_respuesta.content = b"contenido-mp3-falso"
     mock_respuesta.raise_for_status.return_value = None
     mock_post.return_value = mock_respuesta
+    medidor = tts.MedidorDeVolumen()
 
-    tts.hablar("hola mundo")
+    tts.hablar("hola mundo", medidor=medidor)
 
     mock_post.assert_called_once()
-    mock_playsound.assert_called_once()
+    mock_reproducir.assert_called_once_with(mock_decodificar.return_value, medidor)
+
+
+class _SalidaDeAudioFalsa:
+    """Imita sd.OutputStream: pide bloques al callback hasta que este avisa que terminó."""
+
+    niveles: list[float] = []
+
+    def __init__(self, callback, finished_callback, medidor, **_kwargs):
+        self._callback, self._terminar, self._medidor = callback, finished_callback, medidor
+
+    def __enter__(self):
+        salida = np.zeros((1000, 1), dtype="float32")
+        try:
+            while True:
+                self._callback(salida, 1000, None, None)
+                self.niveles.append(self._medidor.nivel)
+        except sd.CallbackStop:
+            pass
+        self._terminar()
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+def test_reproducir_publica_el_volumen_de_lo_que_suena_y_termina_en_cero():
+    medidor = tts.MedidorDeVolumen()
+    audio = np.concatenate([np.full(2000, 0.2, dtype="float32"), np.full(2000, 0.02, dtype="float32"), np.zeros(500, dtype="float32")])
+    _SalidaDeAudioFalsa.niveles = []
+
+    with patch("src.voice.tts.sd.OutputStream", side_effect=lambda **kw: _SalidaDeAudioFalsa(medidor=medidor, **kw)):
+        tts._reproducir(audio, medidor)
+
+    fuerte, _, suave, _ = _SalidaDeAudioFalsa.niveles
+    assert fuerte == 1.0  # voz fuerte: brillo al máximo
+    assert 0 < suave < 0.2  # voz suave: brillo bajo, no un simple encendido/apagado
+    assert medidor.nivel == 0.0  # al terminar de hablar se apaga
 
 
 def test_hablar_sin_api_key_no_crashea(monkeypatch, capsys):
@@ -86,9 +127,10 @@ def test_elegir_voz_cae_a_default_sin_nada_configurado(monkeypatch):
     assert tts._elegir_voz(None) == tts.VOZ_POR_DEFECTO
 
 
-@patch("src.voice.tts.playsound")
+@patch("src.voice.tts._reproducir")
+@patch("src.voice.tts.decode_audio")
 @patch("src.voice.tts.httpx.post")
-def test_hablar_usa_voz_del_motor_en_la_url(mock_post, mock_playsound, monkeypatch):
+def test_hablar_usa_voz_del_motor_en_la_url(mock_post, _mock_decodificar, _mock_reproducir, monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "clave-de-prueba")
     monkeypatch.setenv("ELEVENLABS_VOICE_ID_GEMINI", "voz-gemini")
 

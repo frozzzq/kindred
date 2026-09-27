@@ -1,11 +1,13 @@
 """UI de escritorio (Flet) para Jarvis.
 
 Dos apartados en páginas separadas:
-- Voz: el agente elegido se representa como un orbe animado en el centro.
-  Se le habla llamándolo por su nombre ("Crimson, ...") — eso abre una
-  ventana de conversación de un minuto en la que ya no hace falta repetir
-  el nombre — o con el micrófono (tocar para empezar, tocar para terminar).
-  Cuando el agente habla, el orbe brilla con su color.
+- Voz: el agente elegido se representa como el grafo 3D de la bóveda de
+  Obsidian (notas y sus conexiones), girando y con el color del agente. Se
+  actualiza solo cuando cambia la bóveda, y brilla al ritmo del volumen de
+  la voz del agente. Se le habla llamándolo por su nombre ("Crimson, ...")
+  — eso abre una ventana de conversación de un minuto en la que ya no hace
+  falta repetir el nombre — o con el micrófono (tocar para empezar, tocar
+  para terminar).
 - Chat: conversación por texto.
 
 El agente se elige a mano arriba o diciendo su nombre: Crimson fuerza
@@ -15,7 +17,6 @@ Ollama, Clover fuerza Gemini y Jarvis deja que el router decida.
 import asyncio
 import threading
 import time
-from dataclasses import dataclass
 
 import flet as ft
 import sounddevice as sd
@@ -23,117 +24,23 @@ import sounddevice as sd
 from src.actions.confirmacion import es_afirmativo
 from src.agente.conversacion import Conversacion
 from src.main import procesar_comando
+from src.obsidian.grafo import construir_grafo, firma_boveda
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA, nombre_motor
+from src.ui.grafo3d import GrafoAgente
+from src.ui.paletas import PALETAS, Paleta
 from src.voice.activacion import VentanaConversacion
 from src.voice.escucha_continua import EscuchaContinua
 from src.voice.stt import Grabadora, grabar_hasta_silencio, transcribir
-from src.voice.tts import hablar
+from src.voice.tts import MedidorDeVolumen, hablar
 
-
-@dataclass(frozen=True)
-class Paleta:
-    principal: str
-    oscuro: str
-    claro: str
-
-
-# Jarvis se identifica con MOTOR_ACCION: es el orquestador (router automático
-# y acciones del sistema), no un motor de IA en sí.
-PALETAS = {
-    MOTOR_OLLAMA: Paleta(principal="#DC143C", oscuro="#4A0717", claro="#FF7A8F"),  # Crimson: carmesí elegante
-    MOTOR_GEMINI: Paleta(principal="#9D4EDD", oscuro="#240046", claro="#E0AAFF"),  # Clover: violeta oscuro brillante
-    MOTOR_ACCION: Paleta(principal="#00B4FF", oscuro="#001F3F", claro="#8BE9FF"),  # Jarvis: azul futurista
-}
 AGENTES = (MOTOR_OLLAMA, MOTOR_GEMINI, MOTOR_ACCION)
 COLOR_USUARIO = ft.Colors.BLUE_GREY_200
 FONDO = "#0B0E14"
 ESTADO_VOZ_REPOSO = "Toca el micrófono para hablar"
 SEGUNDOS_AVISO = 4  # cuánto se muestra un aviso ("No te entendí...") antes de volver al estado normal
-
-# Recorrido del foco de luz dentro del orbe, para que se sienta "vivo".
-CENTROS_DE_LUZ = (
-    ft.Alignment(-0.35, -0.35),
-    ft.Alignment(0.3, -0.25),
-    ft.Alignment(0.25, 0.3),
-    ft.Alignment(-0.3, 0.25),
-)
-
-
-class Orbe:
-    """Círculo que representa al agente: respira en reposo y brilla al hablar."""
-
-    TAMANO = 210
-
-    def __init__(self, motor: str) -> None:
-        self.motor = motor
-        self.hablando_como: str | None = None
-        self.escuchando = False
-        self._paso = 0
-        self.control = ft.Container(
-            width=self.TAMANO,
-            height=self.TAMANO,
-            shape=ft.BoxShape.CIRCLE,
-            scale=1.0,
-        )
-        self._aplicar()
-
-    @property
-    def intervalo(self) -> float:
-        """Segundos entre pasos de la animación: más rápido al hablar/escuchar."""
-        if self.hablando_como:
-            return 0.45
-        if self.escuchando:
-            return 0.8
-        return 1.4
-
-    def _aplicar(self) -> None:
-        paleta = PALETAS[self.hablando_como or self.motor]
-        hablando = self.hablando_como is not None
-        duracion = int(self.intervalo * 1000)
-
-        self.control.animate = ft.Animation(duracion, ft.AnimationCurve.EASE_IN_OUT)
-        self.control.animate_scale = ft.Animation(duracion, ft.AnimationCurve.EASE_IN_OUT)
-        self.control.gradient = ft.RadialGradient(
-            colors=[paleta.claro, paleta.principal, paleta.oscuro],
-            stops=[0.0, 0.5, 1.0],
-            center=CENTROS_DE_LUZ[self._paso % len(CENTROS_DE_LUZ)],
-            radius=0.9,
-        )
-        if hablando:
-            expansion, difuminado, opacidad = 22, 90, 0.9
-        elif self.escuchando:  # ventana de conversación abierta: "despierto", esperando que hables
-            expansion, difuminado, opacidad = 10, 60, 0.65
-        else:
-            expansion, difuminado, opacidad = 4, 40, 0.4
-        self.control.shadow = ft.BoxShadow(
-            spread_radius=expansion,
-            blur_radius=difuminado,
-            color=ft.Colors.with_opacity(opacidad, paleta.principal),
-        )
-
-    def cambiar_agente(self, motor: str) -> None:
-        self.motor = motor
-        self._aplicar()
-
-    def empezar_a_hablar(self, motor: str) -> None:
-        self.hablando_como = motor
-        self._aplicar()
-
-    def dejar_de_hablar(self) -> None:
-        self.hablando_como = None
-        self._aplicar()
-
-    def latido(self) -> None:
-        """Un paso de la animación continua (movimiento de la luz + respiración)."""
-        self._paso += 1
-        if self.hablando_como:
-            amplitud = 0.09
-        elif self.escuchando:
-            amplitud = 0.06
-        else:
-            amplitud = 0.035
-        self.control.scale = 1 + amplitud if self._paso % 2 else 1.0
-        self._aplicar()
+CUADROS_POR_SEGUNDO = 30
+SEGUNDOS_ENTRE_REVISIONES_BOVEDA = 2
+SEGUNDOS_ENTRE_ESTADOS = 0.5
 
 
 class JarvisApp:
@@ -150,8 +57,10 @@ class JarvisApp:
         self._turno = threading.Lock()
         self._aviso: str | None = None
         self._aviso_hasta = 0.0
+        self.medidor = MedidorDeVolumen()
+        self._firma_boveda: tuple | None = None
 
-        self.orbe = Orbe(self.agente)
+        self.grafo = GrafoAgente(self.agente)
         self.selector = self._construir_selector()
         self.nombre_agente = ft.Text(size=26, weight=ft.FontWeight.BOLD)
         self.estado_voz = ft.Text(size=14, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER)
@@ -195,8 +104,7 @@ class JarvisApp:
     def _construir_vista_voz(self) -> ft.Column:
         return ft.Column(
             [
-                ft.Container(expand=True),
-                ft.Container(content=self.orbe.control, padding=40, alignment=ft.Alignment(0, 0)),
+                ft.Container(content=self.grafo.control, expand=True),
                 self.nombre_agente,
                 self.estado_voz,
                 ft.Container(height=10),
@@ -207,7 +115,6 @@ class JarvisApp:
                     height=120,
                     padding=ft.Padding(20, 0, 20, 0),
                 ),
-                ft.Container(expand=True),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             expand=True,
@@ -227,7 +134,7 @@ class JarvisApp:
         page = self.page
         page.title = "Jarvis"
         page.window.width = 480
-        page.window.height = 820
+        page.window.height = 900
         page.window.min_width = 400
         page.window.min_height = 660
         page.theme_mode = ft.ThemeMode.DARK
@@ -265,7 +172,7 @@ class JarvisApp:
         self.interruptor_nombre.active_color = paleta.principal
         if not self.grabadora.grabando:
             self.boton_micro.bgcolor = paleta.principal
-        self.orbe.cambiar_agente(self.agente)
+        self.grafo.cambiar_agente(self.agente)
 
     def _seleccionar_agente(self, motor: str) -> None:
         self.agente = motor
@@ -289,14 +196,36 @@ class JarvisApp:
         return ESTADO_VOZ_REPOSO
 
     async def _animar(self) -> None:
+        anterior = time.monotonic()
+        proxima_revision = proximo_estado = proximo_cuadro = anterior
         while True:
-            self.orbe.escuchando = self.grabadora.grabando or (self.escucha.activa and self.ventana.abierta)
-            self.orbe.latido()
-            self.orbe.control.update()
-            if not self.ocupado and not self.grabadora.grabando:
+            ahora = time.monotonic()
+            proximo_cuadro = max(proximo_cuadro + 1 / CUADROS_POR_SEGUNDO, ahora)
+            if ahora >= proxima_revision:
+                await self._revisar_boveda()
+                proxima_revision = ahora + SEGUNDOS_ENTRE_REVISIONES_BOVEDA
+            self.grafo.escuchando = self.grabadora.grabando or (self.escucha.activa and self.ventana.abierta)
+            self.grafo.avanzar(ahora - anterior, self.medidor.nivel)
+            anterior = ahora
+            self.grafo.control.update()
+            if ahora >= proximo_estado and not self.ocupado and not self.grabadora.grabando:
                 self.estado_voz.value = self._texto_estado()
                 self.estado_voz.update()
-            await asyncio.sleep(self.orbe.intervalo)
+                proximo_estado = ahora + SEGUNDOS_ENTRE_ESTADOS
+            await asyncio.sleep(max(0.0, proximo_cuadro - time.monotonic()))
+
+    async def _revisar_boveda(self) -> None:
+        """Si cambió alguna nota (nueva, editada o borrada), rehace el grafo."""
+        try:
+            firma = await asyncio.to_thread(firma_boveda)
+            if firma == self._firma_boveda:
+                return
+            grafo = await asyncio.to_thread(construir_grafo)
+        except (RuntimeError, OSError):
+            return  # bóveda sin configurar, o una nota cambió justo mientras se leía: se reintenta en la próxima revisión
+        self._firma_boveda = firma
+        # En otro hilo: la primera vez acomoda el grafo entero y no debe congelar la ventana.
+        await asyncio.to_thread(self.grafo.mostrar_grafo, grafo)
 
     # ---------- eventos ----------
 
@@ -375,7 +304,7 @@ class JarvisApp:
         """Confirmación hablada (para el apartado de voz): pregunta y escucha "sí" o "no"."""
         self.estado_voz.value = f"{descripcion} Di sí o no."
         self.page.update()
-        hablar(f"{descripcion} Di sí o no.", motor=self._motor_mostrado(MOTOR_ACCION))
+        hablar(f"{descripcion} Di sí o no.", motor=self._motor_mostrado(MOTOR_ACCION), medidor=self.medidor)
         respuesta = transcribir(grabar_hasta_silencio(), filtrar_ruido=True)
         return es_afirmativo(respuesta)
 
@@ -472,15 +401,15 @@ class JarvisApp:
             self.ultima_respuesta.color = paleta.claro
             self.estado_voz.value = f"{nombre} está hablando..."
             self._agregar_al_historial(nombre, respuesta.texto, paleta.principal)
-            self.orbe.empezar_a_hablar(motor_mostrado)
+            self.grafo.empezar_a_hablar(motor_mostrado)
             self.page.update()
 
-            hablar(respuesta.texto, motor=motor_mostrado)
+            hablar(respuesta.texto, motor=motor_mostrado, medidor=self.medidor)
         finally:
             self._terminar_turno_de_voz()
 
     def _terminar_turno_de_voz(self) -> None:
-        self.orbe.dejar_de_hablar()
+        self.grafo.dejar_de_hablar()
         self.ocupado = False
         self.boton_micro.bgcolor = self._paleta_actual().principal
         if self.escucha.activa:

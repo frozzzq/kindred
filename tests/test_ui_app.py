@@ -1,56 +1,11 @@
+import asyncio
 import threading
 from unittest.mock import MagicMock, patch
 
 from src.main import Respuesta
+from src.obsidian.grafo import Grafo, Nodo
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA
-from src.ui.app import PALETAS, JarvisApp, Orbe
-
-
-def test_orbe_usa_el_color_del_agente_elegido():
-    orbe = Orbe(MOTOR_ACCION)
-
-    orbe.cambiar_agente(MOTOR_GEMINI)
-
-    assert PALETAS[MOTOR_GEMINI].principal in orbe.control.gradient.colors
-
-
-def test_orbe_brilla_con_el_color_de_quien_habla():
-    orbe = Orbe(MOTOR_ACCION)
-    brillo_en_reposo = orbe.control.shadow.blur_radius
-
-    orbe.empezar_a_hablar(MOTOR_OLLAMA)
-
-    assert PALETAS[MOTOR_OLLAMA].principal in orbe.control.gradient.colors
-    assert orbe.control.shadow.blur_radius > brillo_en_reposo
-
-
-def test_orbe_vuelve_al_agente_elegido_al_dejar_de_hablar():
-    orbe = Orbe(MOTOR_ACCION)
-    orbe.empezar_a_hablar(MOTOR_OLLAMA)
-
-    orbe.dejar_de_hablar()
-
-    assert PALETAS[MOTOR_ACCION].principal in orbe.control.gradient.colors
-
-
-def test_orbe_latido_alterna_la_escala():
-    orbe = Orbe(MOTOR_ACCION)
-
-    orbe.latido()
-    escala_1 = orbe.control.scale
-    orbe.latido()
-    escala_2 = orbe.control.scale
-
-    assert escala_1 != escala_2
-
-
-def test_orbe_anima_mas_rapido_al_hablar():
-    orbe = Orbe(MOTOR_ACCION)
-    intervalo_reposo = orbe.intervalo
-
-    orbe.empezar_a_hablar(MOTOR_GEMINI)
-
-    assert orbe.intervalo < intervalo_reposo
+from src.ui.app import JarvisApp
 
 
 def test_accion_se_atribuye_al_agente_seleccionado():
@@ -174,3 +129,36 @@ def test_procesar_chat_marca_ocupado_mientras_responde(mock_procesar):
 
     assert estados == [True]
     assert app.ocupado is False
+
+
+def test_elegir_agente_cambia_el_color_del_grafo():
+    app = JarvisApp(MagicMock())
+
+    app._seleccionar_agente(MOTOR_GEMINI)
+
+    assert app.grafo.motor == MOTOR_GEMINI
+
+
+@patch("src.ui.app.construir_grafo")
+@patch("src.ui.app.firma_boveda")
+def test_el_grafo_se_rehace_solo_cuando_cambia_la_boveda(mock_firma, mock_construir):
+    app = JarvisApp(MagicMock())
+    mock_construir.return_value = Grafo(nodos=(Nodo("Nota.md", "Nota", False),), aristas=())
+
+    mock_firma.return_value = (("Nota.md", 1),)
+    asyncio.run(app._revisar_boveda())
+    asyncio.run(app._revisar_boveda())  # sin cambios
+    mock_firma.return_value = (("Nota.md", 2),)  # se editó la nota
+    asyncio.run(app._revisar_boveda())
+
+    assert mock_construir.call_count == 2
+    assert [e.value for e in app.grafo._etiquetas] == ["Nota"]
+
+
+@patch("src.ui.app.firma_boveda", side_effect=RuntimeError("OBSIDIAN_VAULT_PATH no está configurada"))
+def test_sin_boveda_configurada_el_grafo_queda_vacio_sin_fallar(_mock_firma):
+    app = JarvisApp(MagicMock())
+
+    asyncio.run(app._revisar_boveda())
+
+    assert app.grafo._nucleos == []

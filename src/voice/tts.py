@@ -1,12 +1,18 @@
-"""Síntesis de voz (TTS) con ElevenLabs."""
+"""Síntesis de voz (TTS) con ElevenLabs.
 
+El audio se reproduce con sounddevice (no como archivo) para poder medir su
+volumen mientras suena: la UI lo usa para iluminar al agente al ritmo de su voz.
+"""
+
+import io
 import os
 import re
-import tempfile
-from pathlib import Path
+import threading
 
 import httpx
-from playsound3 import playsound
+import numpy as np
+import sounddevice as sd
+from faster_whisper.audio import decode_audio
 
 from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA
 
@@ -14,6 +20,8 @@ VOZ_POR_DEFECTO = "21m00Tcm4TlvDq8ikWAM"  # "Rachel"; en cuentas gratuitas debe 
 # por una voz agregada a "My Voices" en tu cuenta (ver ELEVENLABS_VOICE_ID en .env).
 MODELO_POR_DEFECTO = "eleven_multilingual_v2"
 TIMEOUT_SEGUNDOS = 30
+TASA_REPRODUCCION = 44100  # la del MP3 que devuelve ElevenLabs por defecto
+RMS_VOZ_FUERTE = 0.2  # volumen RMS que se considera "al máximo" para el medidor
 
 VARIABLE_VOZ_POR_MOTOR = {
     MOTOR_OLLAMA: "ELEVENLABS_VOICE_ID_OLLAMA",
@@ -50,12 +58,20 @@ def _elegir_voz(motor: str | None) -> str:
     return os.getenv("ELEVENLABS_VOICE_ID", VOZ_POR_DEFECTO)
 
 
-def hablar(texto: str, motor: str | None = None) -> None:
+class MedidorDeVolumen:
+    """Volumen (0 a 1) de lo que el agente está diciendo en este instante."""
+
+    def __init__(self) -> None:
+        self.nivel = 0.0
+
+
+def hablar(texto: str, motor: str | None = None, medidor: MedidorDeVolumen | None = None) -> None:
     """Convierte texto a voz con ElevenLabs y lo reproduce.
 
     Si se indica `motor` ("ollama"/"gemini"), usa la voz configurada para
     ese motor. Si falla (sin API key, sin cuota, sin internet), no crashea:
     avisa por consola y muestra el texto para que la conversación continúe.
+    Con `medidor`, va publicando ahí el volumen de lo que suena.
     """
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
@@ -80,11 +96,34 @@ def hablar(texto: str, motor: str | None = None) -> None:
         print(f"[aviso] ElevenLabs falló ({error}), mostrando texto en su lugar:\n{texto}")
         return
 
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as archivo_temporal:
-        archivo_temporal.write(respuesta.content)
-        ruta_temporal = Path(archivo_temporal.name)
+    audio = decode_audio(io.BytesIO(respuesta.content), sampling_rate=TASA_REPRODUCCION)
+    _reproducir(audio, medidor)
+
+
+def _reproducir(audio: np.ndarray, medidor: MedidorDeVolumen | None) -> None:
+    posicion = 0
+    terminado = threading.Event()
+
+    def callback(salida, frames, tiempo, estado):
+        nonlocal posicion
+        bloque = audio[posicion : posicion + frames]
+        posicion += len(bloque)
+        salida[: len(bloque), 0] = bloque
+        salida[len(bloque) :, 0] = 0
+        if medidor is not None and len(bloque):
+            medidor.nivel = min(1.0, float(np.sqrt(np.mean(bloque**2))) / RMS_VOZ_FUERTE)
+        if len(bloque) < frames:
+            raise sd.CallbackStop
 
     try:
-        playsound(str(ruta_temporal))
+        with sd.OutputStream(
+            samplerate=TASA_REPRODUCCION,
+            channels=1,
+            dtype="float32",
+            callback=callback,
+            finished_callback=terminado.set,
+        ):
+            terminado.wait()
     finally:
-        ruta_temporal.unlink(missing_ok=True)
+        if medidor is not None:
+            medidor.nivel = 0.0

@@ -172,16 +172,27 @@ python -m src.main_ui
 Ventana con [Flet](https://flet.dev) (renderiza con Flutter, sin HTML/JS
 ni servidor separado), con dos apartados en la barra inferior:
 
-- **Voz:** el agente elegido aparece como un orbe animado en el centro
-  (Crimson carmesí, Clover violeta, Jarvis azul). Cuando el agente
-  responde, el orbe brilla con el color de quien realmente habló.
+- **Voz:** el agente aparece como el **grafo 3D de tu bóveda de Obsidian**
+  (`src/ui/grafo3d.py`): cada nota es un nodo, los `[[enlaces]]` son líneas
+  brillantes y cada carpeta es un nodo central unido a sus notas con líneas
+  tenues (para que haya estructura aunque las notas aún no se enlacen).
+  - Gira 360° lentamente (una vuelta cada 40 s) con perspectiva: lo lejano
+    se ve más pequeño y tenue, y solo se rotulan las notas del frente.
+  - Toma el color del agente (Crimson carmesí, Clover violeta, Jarvis azul)
+    con transición suave; al responder usa el color de quien realmente habló.
+  - **Brilla según el volumen de la voz** del agente, no solo encendido/
+    apagado: la voz se reproduce con `sounddevice` y se mide el volumen de
+    cada fragmento mientras suena (`MedidorDeVolumen` en `src/voice/tts.py`).
+  - **Se actualiza solo:** cada 2 s revisa si cambió alguna nota (nueva,
+    editada o borrada) y rehace el grafo sin mover los nodos que ya estaban;
+    los nuevos aparecen junto a sus vecinos (`src/obsidian/grafo.py`).
   - **Activación por nombre** (interruptor, encendido por defecto): di
     "Crimson", "Clover" o "Jarvis" (solo o seguido de lo que quieres, ej.
     "Crimson, ¿qué pendientes tengo?"). Eso abre una **ventana de
     conversación de 1 minuto**: mientras sigas hablando no hace falta
     repetir el nombre, y cada frase reinicia el minuto. Tras un minuto en
     silencio hay que volver a llamarlo. Decir otro nombre le pasa la
-    palabra a ese agente. El orbe brilla un poco más mientras la ventana
+    palabra a ese agente. El grafo brilla un poco más mientras la ventana
     está abierta, y el estado muestra los segundos que quedan.
   - El nombre lo detecta Whisper (escucha continua + tolerancia a errores
     de transcripción como "Yarvis"/"Grimson"), así que usa algo de CPU y
