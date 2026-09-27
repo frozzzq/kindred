@@ -7,9 +7,9 @@ Dos apartados en páginas separadas:
   la voz del agente. Se le habla llamándolo por su nombre ("Crimson, ...")
   — eso abre una ventana de conversación de un minuto en la que ya no hace
   falta repetir el nombre — o con el micrófono (tocar para empezar, tocar
-  para terminar). Se le puede interrumpir a medio hablar (llamándolo de
-  nuevo, o tocando el micrófono) para decirle otra cosa, y se le puede
-  pedir que cierre la aplicación (con confirmación de por medio).
+  para terminar). Se le puede interrumpir a medio hablar (diciendo
+  cualquier cosa, o tocando el micrófono) para decirle otra cosa, y se le
+  puede pedir que cierre la aplicación (con confirmación de por medio).
 - Chat: conversación por texto.
 
 El agente se elige a mano arriba o diciendo su nombre: Crimson fuerza
@@ -17,6 +17,7 @@ Ollama y Clover fuerza Gemini.
 """
 
 import asyncio
+import difflib
 import threading
 import time
 
@@ -27,10 +28,11 @@ from src.actions.confirmacion import es_afirmativo
 from src.agente.conversacion import Conversacion
 from src.main import procesar_comando
 from src.obsidian.grafo import construir_grafo, firma_boveda
+from src.obsidian.vault_writer import normalizar
 from src.router.intent_router import MOTOR_ACCION, MOTOR_GEMINI, MOTOR_OLLAMA, nombre_motor
 from src.ui.grafo3d import GrafoAgente
 from src.ui.paletas import PALETAS, Paleta
-from src.voice.activacion import VentanaConversacion, detectar_nombre
+from src.voice.activacion import VentanaConversacion
 from src.voice.escucha_continua import EscuchaContinua
 from src.voice.stt import Grabadora, grabar_hasta_silencio, transcribir
 from src.voice.tts import MedidorDeVolumen, hablar
@@ -43,6 +45,10 @@ SEGUNDOS_AVISO = 4  # cuánto se muestra un aviso ("No te entendí...") antes de
 CUADROS_POR_SEGUNDO = 30
 SEGUNDOS_ENTRE_REVISIONES_BOVEDA = 2
 SEGUNDOS_ENTRE_ESTADOS = 0.5
+# Ya no hace falta decir su nombre para interrumpirlo: cualquier frase durante un turno en
+# curso corta y se atiende. El riesgo es oír su propio eco por las bocinas; si lo detectado se
+# parece demasiado a lo que está diciendo en ese momento, se asume que es eco y se ignora.
+SIMILITUD_MAXIMA_ANTES_DE_IGNORAR = 0.5
 
 
 class JarvisApp:
@@ -61,6 +67,9 @@ class JarvisApp:
         self._aviso_hasta = 0.0
         # Se activa para cortar al agente a medio hablar (interrupción).
         self._interrumpir = threading.Event()
+        # Lo que el agente está diciendo en este instante (para distinguir una interrupción
+        # real de que se escuche a sí mismo por las bocinas); vacío cuando no habla.
+        self._texto_hablando = ""
         self.medidor = MedidorDeVolumen()
         self._firma_boveda: tuple | None = None
 
@@ -325,19 +334,32 @@ class JarvisApp:
 
     # --- voz ---
 
+    def _es_su_propio_eco(self, texto: str) -> bool:
+        """¿Lo detectado se parece demasiado a lo que el agente está diciendo en este instante?
+
+        Sin cancelación de eco de hardware, el micrófono puede captar su
+        propia voz por las bocinas. No hace falta el nombre para
+        interrumpirlo, así que esta es la única defensa contra contestarse
+        a sí mismo en bucle: si no está hablando (_texto_hablando vacío) o
+        lo dicho no se parece a lo que dice, se asume que es real.
+        """
+        if not self._texto_hablando:
+            return False
+        similitud = difflib.SequenceMatcher(None, normalizar(texto), normalizar(self._texto_hablando)).ratio()
+        return similitud >= SIMILITUD_MAXIMA_ANTES_DE_IGNORAR
+
     def _al_escuchar_frase(self, audio) -> None:
         """Llega una frase de la escucha continua (incluso mientras el agente habla, para poder
-        interrumpirlo llamándolo de nuevo): ¿llamaron al agente o sigue abierta la ventana?"""
+        interrumpirlo diciendo lo que sea): ¿le hablaban al asistente o sigue abierta la ventana?"""
         if self.grabadora.grabando:
             return  # el micrófono manual ya se está encargando de esto
         texto = transcribir(audio, filtrar_ruido=True)
         if not texto:
             return
-        motor_nombrado, _resto = detectar_nombre(texto)
         if not self._turno.acquire(blocking=False):
-            if motor_nombrado is None:
-                return  # turno en curso y no lo llamaron por su nombre: probablemente es su propio eco
-            self._interrumpir.set()  # lo volvieron a llamar a medio hablar: cortarlo y atenderlo
+            if self._es_su_propio_eco(texto):
+                return  # probablemente se escuchó a sí mismo: se ignora para no contestarse en bucle
+            self._interrumpir.set()  # hay un turno en curso: cortarlo y atender esto en su lugar
             self._turno.acquire()  # espera a que el turno interrumpido suelte el lock de verdad
         try:
             agente, mensaje = self.ventana.procesar(texto)
@@ -386,13 +408,13 @@ class JarvisApp:
         """Responde a lo dicho por voz (por el micrófono o llamando al agente por su nombre).
 
         La escucha sigue activa mientras piensa y habla, así que se le
-        puede volver a llamar por su nombre para interrumpirlo y decirle
-        otra cosa (ver _al_escuchar_frase). El costo es que puede oír su
-        propio eco: por eso una frase sin su nombre durante un turno en
-        curso se ignora en vez de contestarse a sí mismo en bucle.
+        puede interrumpir diciendo cualquier cosa (ver _al_escuchar_frase).
+        El costo es que puede oír su propio eco: por eso se lleva registro
+        de _texto_hablando, para poder distinguirlo de una interrupción real.
         """
         self.ocupado = True
         self._interrumpir.clear()
+        self._texto_hablando = ""
         try:
             self.ultimo_usuario.value = f"Tú: {texto}"
             self.ultima_respuesta.value = ""
@@ -417,10 +439,12 @@ class JarvisApp:
             self.grafo.empezar_a_hablar(motor_mostrado)
             self.page.update()
 
+            self._texto_hablando = respuesta.texto
             hablar(respuesta.texto, motor=motor_mostrado, medidor=self.medidor, detener=self._interrumpir)
             if respuesta.cerrar:
                 self.page.run_task(self.page.window.close)
         finally:
+            self._texto_hablando = ""
             self._terminar_turno_de_voz()
 
     def _terminar_turno_de_voz(self) -> None:

@@ -62,9 +62,30 @@ def test_solo_el_nombre_abre_la_ventana_sin_responder():
     app._atender_voz.assert_not_called()
 
 
-def test_frase_sin_nombre_con_turno_en_curso_se_ignora():
-    """Sin su nombre, mientras habla probablemente es su propio eco: no lo interrumpe."""
-    app, patcher = _app_escuchando("sigo hablando")
+def test_es_su_propio_eco_cuando_no_esta_hablando():
+    app = JarvisApp(MagicMock())
+
+    assert app._es_su_propio_eco("cualquier cosa") is False
+
+
+def test_es_su_propio_eco_con_texto_identico():
+    app = JarvisApp(MagicMock())
+    app._texto_hablando = "Tienes tres pendientes para hoy."
+
+    assert app._es_su_propio_eco("tienes tres pendientes para hoy") is True
+
+
+def test_es_su_propio_eco_con_texto_no_relacionado():
+    app = JarvisApp(MagicMock())
+    app._texto_hablando = "Tienes tres pendientes para hoy."
+
+    assert app._es_su_propio_eco("abre la calculadora") is False
+
+
+def test_frase_parecida_a_lo_que_dice_se_ignora_como_eco():
+    """Sin cancelación de eco de hardware: si se parece a lo que está diciendo, se asume su propio eco."""
+    app, patcher = _app_escuchando("tienes tres pendientes para hoy")
+    app._texto_hablando = "Tienes tres pendientes para hoy."
     app._turno.acquire()  # simula un turno ya en curso
     try:
         app._al_escuchar_frase(audio=None)
@@ -76,8 +97,12 @@ def test_frase_sin_nombre_con_turno_en_curso_se_ignora():
     assert not app._interrumpir.is_set()
 
 
-def test_llamarlo_de_nuevo_con_turno_en_curso_lo_interrumpe():
-    app, patcher = _app_escuchando("Crimson, olvida eso")
+def test_cualquier_frase_distinta_con_turno_en_curso_lo_interrumpe():
+    """Ya no hace falta decir su nombre para interrumpirlo: basta con que no suene a su propio eco."""
+    app, patcher = _app_escuchando("olvida eso, mejor dime la hora")
+    app._texto_hablando = "Tienes tres pendientes para hoy."
+    app.ventana.agente = MOTOR_OLLAMA
+    app.ventana.extender()  # simula que la ventana de conversación ya estaba abierta
     app._turno.acquire()  # simula un turno ya en curso (el agente está "hablando")
     try:
         hilo = threading.Thread(target=app._al_escuchar_frase, args=(None,), daemon=True)
@@ -95,7 +120,7 @@ def test_llamarlo_de_nuevo_con_turno_en_curso_lo_interrumpe():
     finally:
         patcher.stop()
 
-    app._atender_voz.assert_called_once_with("olvida eso")
+    app._atender_voz.assert_called_once_with("olvida eso, mejor dime la hora")
 
 
 def test_mientras_graba_por_microfono_manual_no_atiende_frases():

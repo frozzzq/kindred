@@ -208,12 +208,16 @@ ni servidor separado), con dos apartados en la barra inferior:
     puede activarse si mencionas el nombre en una plática.
   - **Interrumpir al agente:** mientras piensa o habla, se le puede cortar
     y decirle otra cosa — tocando el micrófono (sin riesgo, siempre
-    funciona) o llamándolo de nuevo por su nombre. La escucha sigue activa
-    durante toda la respuesta para que esto funcione, con el costo de que
-    a veces puede "oír" su propio eco por las bocinas: una frase sin su
-    nombre mientras habla se ignora (para no contestarse a sí mismo en
-    bucle), pero si el eco llega a incluir su nombre podría autointerrumpirse
-    (raro, pero posible sin cancelación de eco de hardware).
+    funciona) o **diciendo lo que sea, sin necesidad de repetir su
+    nombre**. La escucha sigue activa durante toda la respuesta para que
+    esto funcione, con el costo de que puede "oír" su propio eco por las
+    bocinas: como defensa (sin cancelación de eco de hardware, la única
+    disponible), se compara lo detectado contra lo que el agente está
+    diciendo en ese instante (`_texto_hablando` en `src/ui/app.py`) — si se
+    parece demasiado, se asume que es su propio eco y se ignora. Funciona
+    bien si el eco captado es la frase completa o media frase, pero un eco
+    muy fragmentado (2-3 palabras sueltas) podría no reconocerse como tal y
+    autointerrumpirlo — limitación real de esta heurística, no un bug.
   - Las confirmaciones (abrir apps, cerrar la aplicación) se responden por
     voz: "sí" o "no".
   - El micrófono manual sigue disponible: tocar para empezar, tocar para
