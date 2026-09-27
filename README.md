@@ -131,12 +131,18 @@ define en `NOMBRES_MOTOR` (`src/router/intent_router.py`).
   prompt, pero todavía no tiene herramientas.
 - La voz ya no lee markdown, viñetas ni emojis (`limpiar_para_voz` en `src/voice/tts.py`).
 
-**Voces distintas por motor:** en el CLI de voz, cada motor puede tener su
-propia voz de ElevenLabs — configurable con `ELEVENLABS_VOICE_ID_OLLAMA` y
-`ELEVENLABS_VOICE_ID_GEMINI` en `.env` (cada una debe ser una voz que ya
-esté en tu biblioteca "My Voices"; las cuentas gratuitas solo pueden usar
-voces `premade`, no las de la Voice Library, vía API). Si no se configura
-una específica, cae a `ELEVENLABS_VOICE_ID` genérica.
+**Síntesis de voz (TTS):** primero se intenta con **edge-tts** (`src/voice/tts.py`) —
+gratis, sin API key ni límite conocido, reutiliza el servicio de voz de
+Microsoft Edge. Si falla (no es una API oficial: puede dejar de funcionar
+sin aviso si Microsoft cambia algo), cae automáticamente a **ElevenLabs**
+como respaldo de pago. Cada motor puede tener su propia voz en cada
+servicio — `EDGE_TTS_VOICE_OLLAMA`/`EDGE_TTS_VOICE_GEMINI` (default:
+`es-MX-JorgeNeural`/`es-MX-DaliaNeural`; lista completa con
+`edge-tts --list-voices`) y `ELEVENLABS_VOICE_ID_OLLAMA`/`ELEVENLABS_VOICE_ID_GEMINI`
+(cada una debe ser una voz que ya esté en tu biblioteca "My Voices"; las
+cuentas gratuitas solo pueden usar voces `premade`, no las de la Voice
+Library, vía API). Si no se configura una específica, cada servicio cae a
+su variable genérica (`EDGE_TTS_VOICE`/`ELEVENLABS_VOICE_ID`).
 
 **Acciones sobre el sistema (Fase 4):** un comando tipo "abre la
 calculadora" abre la app directamente (lista blanca fija en
