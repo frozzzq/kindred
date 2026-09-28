@@ -118,7 +118,7 @@ def proyectar(pos: np.ndarray, angulo: float) -> tuple[np.ndarray, np.ndarray, n
 
 
 BLANCO = np.array([255.0, 255.0, 255.0])
-MEZCLA_BRILLO_HOLOGRAMA = 0.2  # cuánto se acerca el color al blanco puro, para un brillo más intenso
+MEZCLA_BRILLO_HOLOGRAMA = 0.4  # cuánto se acerca el color al blanco puro, para un brillo más intenso
 
 
 def _rgb(color: str) -> np.ndarray:
@@ -199,8 +199,8 @@ class GrafoAgente:
 
     def _brillo_base(self) -> float:
         if self.hablando_como or self.escuchando:
-            return 0.35
-        return 0.18 + 0.06 * math.sin(self._tiempo * 2 * math.pi / 4)  # en reposo "respira"
+            return 0.55
+        return 0.3 + 0.08 * math.sin(self._tiempo * 2 * math.pi / 4)  # en reposo "respira"
 
     def _dibujar(self) -> None:
         cx, cy = self._ancho / 2, self._alto / 2
@@ -260,7 +260,7 @@ class GrafoAgente:
             color_nucleo = claro if nodo.es_carpeta else principal + (claro - principal) * encendido
             color_nucleo = color_nucleo + (BLANCO - color_nucleo) * MEZCLA_BRILLO_HOLOGRAMA
             radio_nucleo = radio_nodo * 1.4
-            opacidad_nucleo = (0.32 + 0.28 * cercania[i]) * (0.8 + 0.2 * encendido)
+            opacidad_nucleo = (0.55 + 0.35 * cercania[i]) * (0.85 + 0.15 * encendido)
             nucleo.x, nucleo.y, nucleo.radius = sx[i], sy[i], radio_nucleo
             nucleo.paint = ft.Paint(
                 gradient=ft.PaintRadialGradient(
