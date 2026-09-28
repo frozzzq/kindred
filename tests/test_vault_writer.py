@@ -1,5 +1,6 @@
 from src.obsidian.vault_writer import (
     agregar_pendiente,
+    agregar_recurrente,
     completar_pendiente,
     escribir_nota,
     guardar_contacto,
@@ -70,6 +71,64 @@ def test_agregar_pendiente_distinto_si_agrega(tmp_path, monkeypatch):
     contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
     assert "croquetas" in contenido.lower()
     assert "dentista" in contenido.lower()
+
+
+def test_agregar_pendiente_con_fecha_en_lenguaje_natural(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    resultado = agregar_pendiente("Entregar el reporte", cuando="mañana a las 6pm")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert "📅" in contenido and "⏰" in contenido and "18:00" in contenido
+    assert "para el" in resultado
+
+
+def test_agregar_pendiente_cuando_sin_fecha_reconocible_no_agrega_tag(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    agregar_pendiente("Comprar leche", cuando="algo sin fecha ni hora")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert "📅" not in contenido
+
+
+def test_agregar_pendiente_sin_cuando_no_agrega_tag(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    agregar_pendiente("Comprar leche")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert "📅" not in contenido
+
+
+def test_agregar_recurrente(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    resultado = agregar_recurrente("Tomar medicina", "diario a las 9pm")
+
+    contenido = (tmp_path / "02-Tareas" / "Recurrentes.md").read_text(encoding="utf-8")
+    assert "Tomar medicina" in contenido and "🔁" in contenido and "21:00" in contenido
+    assert "agregada" in resultado.lower()
+
+
+def test_agregar_recurrente_sin_hora_clara_no_agrega_nada(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    resultado = agregar_recurrente("Tomar medicina", "de vez en cuando")
+
+    assert not (tmp_path / "02-Tareas" / "Recurrentes.md").exists()
+    assert "no entendí" in resultado.lower()
+
+
+def test_agregar_recurrente_no_duplica(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    agregar_recurrente("Tomar medicina", "diario a las 9pm")
+
+    resultado = agregar_recurrente("Tomar medicina", "diario a las 9pm")
+
+    contenido = (tmp_path / "02-Tareas" / "Recurrentes.md").read_text(encoding="utf-8")
+    assert contenido.lower().count("tomar medicina") == 1
+    assert "ya tenías" in resultado.lower()
 
 
 def _pendientes(tmp_path, *lineas):

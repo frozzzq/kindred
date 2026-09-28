@@ -5,6 +5,7 @@ from src.obsidian.config import ruta_boveda
 NOTAS_INICIALES = (
     "00-Sistema/Configuracion.md",
     "00-Sistema/Logs-Interacciones.md",
+    "00-Sistema/HEARTBEAT.md",
     "01-Perfil/Yo.md",
     "01-Perfil/Contactos.md",
     "01-Perfil/Patrones.md",

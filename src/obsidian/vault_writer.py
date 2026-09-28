@@ -8,12 +8,14 @@ from src.obsidian.config import ruta_boveda
 
 RUTA_PENDIENTES = "02-Tareas/Pendientes.md"
 RUTA_COMPLETADAS = "02-Tareas/Completadas.md"
+RUTA_RECURRENTES = "02-Tareas/Recurrentes.md"
 RUTA_PERFIL = "01-Perfil/Yo.md"
 RUTA_CONTACTOS = "01-Perfil/Contactos.md"
 RUTA_PATRONES = "01-Perfil/Patrones.md"
 RUTA_LOG = "00-Sistema/Logs-Interacciones.md"
 
 MARCA_PENDIENTE = "- [ ] "
+MARCA_RECURRENTE = "- "
 
 
 def _ahora() -> str:
@@ -69,16 +71,28 @@ def escribir_nota(ruta_relativa: str, contenido: str, sobrescribir: bool = False
     ruta.write_text(contenido, encoding="utf-8")
 
 
-def agregar_pendiente(tarea: str) -> str:
+def agregar_pendiente(tarea: str, cuando: str | None = None) -> str:
     """Agrega una tarea a Pendientes.md, si no estaba ya (aunque esté redactada distinto).
 
-    La fecha es de cuándo se agregó, no un vencimiento.
+    `cuando` es la fecha/hora en lenguaje natural ("mañana a las 6pm", "el viernes"); si no se
+    entiende ninguna fecha ahí, el pendiente se agrega igual, sin fecha (como antes de la Fase 7).
+    El "(agregado ...)" del final es de cuándo se agregó, no un vencimiento.
     """
+    # Import local: fechas.py importa normalizar de este módulo, y así se evita el ciclo.
+    from src.obsidian.fechas import formatear_tags, parsear_fecha_hora
+
     tarea = tarea.strip()
     if ya_esta_anotado(tarea, _leer(RUTA_PENDIENTES)):
         return f"Ya tenías ese pendiente: {tarea}"
-    escribir_nota(RUTA_PENDIENTES, f"{MARCA_PENDIENTE}{tarea} (agregado {_ahora()})")
-    return f"Pendiente agregado: {tarea}"
+
+    etiqueta, aviso = "", ""
+    if cuando:
+        fecha, hora = parsear_fecha_hora(cuando)
+        if fecha:
+            etiqueta = " " + formatear_tags(fecha, hora)
+            aviso = f" para el {fecha.isoformat()}" + (f" a las {hora.strftime('%H:%M')}" if hora else "")
+    escribir_nota(RUTA_PENDIENTES, f"{MARCA_PENDIENTE}{tarea}{etiqueta} (agregado {_ahora()})")
+    return f"Pendiente agregado: {tarea}{aviso}"
 
 
 def completar_pendiente(descripcion: str) -> str:
@@ -106,6 +120,27 @@ def completar_pendiente(descripcion: str) -> str:
     escribir_nota(RUTA_PENDIENTES, "\n".join(lineas) + ("\n" if lineas else ""), sobrescribir=True)
     escribir_nota(RUTA_COMPLETADAS, f"- [x] {tarea} (completado {_ahora()})")
     return f"Pendiente completado: {tarea}"
+
+
+def agregar_recurrente(tarea: str, frecuencia: str) -> str:
+    """Agrega una tarea recurrente a Recurrentes.md ("tomar medicina, diario a las 9pm").
+
+    Si no se entiende cuándo debe repetirse (falta la hora, o no dice ni "diario" ni un día de la
+    semana), no la agrega y lo dice, para poder pedírsela de nuevo con más detalle.
+    """
+    from src.obsidian.recurrentes import formatear_linea, parsear_frecuencia
+
+    tarea = tarea.strip()
+    recurrencia = parsear_frecuencia(frecuencia)
+    if recurrencia is None:
+        return (
+            f"No entendí cuándo se repite \"{tarea}\". Dime un día de la semana o \"diario\", y a "
+            'qué hora, por ejemplo "diario a las 9pm" o "los lunes a las 8am".'
+        )
+    if ya_esta_anotado(tarea, _leer(RUTA_RECURRENTES)):
+        return f"Ya tenías esa tarea recurrente: {tarea}"
+    escribir_nota(RUTA_RECURRENTES, f"{MARCA_RECURRENTE}{formatear_linea(tarea, recurrencia)} (agregado {_ahora()})")
+    return f"Tarea recurrente agregada: {tarea}"
 
 
 def _leer(ruta_relativa: str) -> str:
