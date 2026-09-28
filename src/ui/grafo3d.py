@@ -117,6 +117,10 @@ def proyectar(pos: np.ndarray, angulo: float) -> tuple[np.ndarray, np.ndarray, n
     return x * perspectiva, y * perspectiva, perspectiva, np.clip((z + 1) / 2, 0.0, 1.0)
 
 
+BLANCO = np.array([255.0, 255.0, 255.0])
+MEZCLA_BRILLO_HOLOGRAMA = 0.2  # cuánto se acerca el color al blanco puro, para un brillo más intenso
+
+
 def _rgb(color: str) -> np.ndarray:
     return np.array([int(color[i : i + 2], 16) for i in (1, 3, 5)], dtype=float)
 
@@ -225,11 +229,14 @@ class GrafoAgente:
         cercania = 1 - 0.6 * profundidad  # lo lejano se ve más tenue
 
         for linea, arista, (i, j) in zip(self._lineas, self._aristas, self.disposicion.extremos):
-            opacidad = (0.75 + 0.25 * self.nivel if arista.es_enlace else 0.4 + 0.3 * self.nivel) * (cercania[i] + cercania[j]) / 2
+            opacidad = (0.65 + 0.2 * self.nivel if arista.es_enlace else 0.32 + 0.25 * self.nivel) * (cercania[i] + cercania[j]) / 2
+            color_linea = claro if arista.es_enlace else principal
+            color_linea = color_linea + (BLANCO - color_linea) * MEZCLA_BRILLO_HOLOGRAMA
             linea.x1, linea.y1, linea.x2, linea.y2 = sx[i], sy[i], sx[j], sy[j]
             linea.paint = ft.Paint(
-                color=_color(claro if arista.es_enlace else principal, opacidad),
-                stroke_width=1.6 if arista.es_enlace else 1.0,
+                color=_color(color_linea, opacidad),
+                stroke_width=1.4 if arista.es_enlace else 0.9,
+                blend_mode=ft.BlendMode.PLUS,
             )
 
         encendido = 0.35 + 0.65 * self.nivel
@@ -248,9 +255,22 @@ class GrafoAgente:
                 blend_mode=ft.BlendMode.PLUS,
             )
 
+            # Núcleo tipo holograma: un gradiente translúcido (no un disco sólido), con blanco
+            # mezclado para que se vea más brillante y "proyectado" que un color plano.
             color_nucleo = claro if nodo.es_carpeta else principal + (claro - principal) * encendido
-            nucleo.x, nucleo.y, nucleo.radius = sx[i], sy[i], radio_nodo
-            nucleo.paint = ft.Paint(color=_color(color_nucleo, 0.5 + 0.5 * cercania[i]))
+            color_nucleo = color_nucleo + (BLANCO - color_nucleo) * MEZCLA_BRILLO_HOLOGRAMA
+            radio_nucleo = radio_nodo * 1.4
+            opacidad_nucleo = (0.32 + 0.28 * cercania[i]) * (0.8 + 0.2 * encendido)
+            nucleo.x, nucleo.y, nucleo.radius = sx[i], sy[i], radio_nucleo
+            nucleo.paint = ft.Paint(
+                gradient=ft.PaintRadialGradient(
+                    center=ft.Offset(sx[i], sy[i]),
+                    radius=radio_nucleo,
+                    colors=[_color(BLANCO, opacidad_nucleo), _color(color_nucleo, opacidad_nucleo * 0.5), _color(color_nucleo, 0.0)],
+                    color_stops=[0.0, 0.5, 1.0],
+                ),
+                blend_mode=ft.BlendMode.PLUS,
+            )
 
             if nodo.es_carpeta:
                 opacidad_etiqueta = 0.8 * cercania[i]
