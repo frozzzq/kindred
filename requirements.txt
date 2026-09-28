@@ -13,3 +13,6 @@ flet-desktop>=1.0,<2.0
 
 pywin32>=306
 pywinauto>=0.6,<0.7
+
+dateparser>=1.2
+win11toast>=0.35

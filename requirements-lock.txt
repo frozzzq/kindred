@@ -2,6 +2,7 @@
 # Instalar con: pip install -r requirements-lock.txt
 # Regenerar tras cambios en requirements*.txt: .venv\Scripts\python.exe -m pip freeze > requirements-lock.txt
 # Luego correr: pytest para verificar que todo sigue funcionando
+
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aiosignal==1.4.0
@@ -18,6 +19,7 @@ colorama==0.4.6
 comtypes==1.4.17
 cryptography==50.0.1
 ctranslate2==4.8.2
+dateparser==1.4.3
 ddgs==9.16.0
 distro==1.9.0
 edge-tts==7.2.8
@@ -60,10 +62,13 @@ pydantic==2.13.5
 pydantic_core==2.46.5
 Pygments==2.21.0
 pytest==9.1.1
+python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
+pytz==2026.4
 pywin32==312
 pywinauto==0.6.9
 PyYAML==6.0.3
+regex==2026.9.10
 repath==0.9.0
 requests==2.34.2
 rich==15.0.0
@@ -79,6 +84,22 @@ tokenizers==0.23.2
 tqdm==4.70.1
 typing-inspection==0.4.4
 typing_extensions==4.16.0
+tzdata==2026.4
+tzlocal==5.4.4
 urllib3==2.8.0
 websockets==16.1.1
+win11toast==0.36.3
+winrt-runtime==3.2.1
+winrt-Windows.Data.Xml.Dom==3.2.1
+winrt-Windows.Foundation==3.2.1
+winrt-Windows.Foundation.Collections==3.2.1
+winrt-Windows.Globalization==3.2.1
+winrt-Windows.Graphics.Imaging==3.2.1
+winrt-Windows.Media.Core==3.2.1
+winrt-Windows.Media.Ocr==3.2.1
+winrt-Windows.Media.Playback==3.2.1
+winrt-Windows.Media.SpeechSynthesis==3.2.1
+winrt-Windows.Storage==3.2.1
+winrt-Windows.Storage.Streams==3.2.1
+winrt-Windows.UI.Notifications==3.2.1
 yarl==1.25.1
