@@ -92,7 +92,7 @@ def main() -> None:
     except RuntimeError as error:
         print(f"[núcleo] no se pudo preparar la bóveda de Obsidian: {error}")
 
-    print("Jarvis (núcleo, Fase 7). Ctrl+C para salir.")
+    print("Crimson y Clover (núcleo, Fase 7). Ctrl+C para salir.")
     while True:
         try:
             ciclo()

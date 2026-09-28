@@ -1,4 +1,4 @@
-"""UI de escritorio (Flet) para Jarvis.
+"""UI de escritorio (Flet) para Crimson y Clover.
 
 Dos apartados en páginas separadas:
 - Voz: el agente elegido se representa como el grafo 3D de la bóveda de
@@ -152,7 +152,7 @@ class JarvisApp:
 
     def montar(self) -> None:
         page = self.page
-        page.title = "Jarvis"
+        page.title = "Crimson y Clover"
         page.window.width = 480
         page.window.height = 900
         page.window.min_width = 400

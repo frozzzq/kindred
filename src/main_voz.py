@@ -38,7 +38,7 @@ def main() -> None:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
     conversacion = Conversacion()
-    print("Jarvis (voz, Fase 3 + Fase 4 - push-to-talk). Ctrl+C para salir.")
+    print("Crimson y Clover (voz, Fase 3 + Fase 4 - push-to-talk). Ctrl+C para salir.")
     while True:
         try:
             texto = escuchar_comando()

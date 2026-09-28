@@ -11,19 +11,23 @@ src.voice.wakeword/vad/stt en el mismo proceso sin probarlo primero.
 
 from win11toast import toast
 
+from src.router.intent_router import MOTOR_OLLAMA
 from src.voice.tts import hablar
 
-APP_ID = "Jarvis"
+# No hay un tercer agente "Jarvis": el núcleo avisa proactivamente sin que haya un turno de
+# conversación con un agente en particular, así que se le atribuye a Crimson (el agente por
+# defecto), con su voz incluida.
+APP_ID = "Crimson"
 
 
 def avisar(titulo: str, mensaje: str, con_voz: bool = True) -> None:
-    """Notifica por Windows y, si con_voz, también lo dice en voz alta."""
+    """Notifica por Windows y, si con_voz, también lo dice en voz alta (con la voz de Crimson)."""
     try:
         toast(titulo, mensaje, app_id=APP_ID)
     except Exception as error:  # noqa: BLE001 - un aviso fallido no debe tumbar el heartbeat
         print(f"[núcleo] no se pudo mostrar la notificación de Windows: {error}")
     if con_voz:
         try:
-            hablar(mensaje)
+            hablar(mensaje, motor=MOTOR_OLLAMA)
         except Exception as error:  # noqa: BLE001
             print(f"[núcleo] no se pudo avisar por voz: {error}")

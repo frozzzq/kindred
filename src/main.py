@@ -234,7 +234,7 @@ def main() -> None:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
     conversacion = Conversacion()
-    print("Jarvis (CLI de texto). Escribe 'salir' para terminar.")
+    print("Crimson y Clover (CLI de texto). Escribe 'salir' para terminar.")
     while True:
         try:
             texto = input("> ").strip()

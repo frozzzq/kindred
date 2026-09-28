@@ -20,10 +20,14 @@ MOTOR_GEMINI_FALLO = "gemini_fallo"  # se registra cuando Gemini fue intentado p
 # Nombres de personalidad solo para mostrar/decir (cosmético). Los
 # identificadores internos (ollama/gemini/accion) no cambian, para no
 # romper logs, variables de entorno ni tests existentes.
+# Los únicos agentes son Crimson y Clover (no existe un tercer agente "Jarvis"): una acción directa
+# (abrir apps, modo seguro...) no la contesta ningún motor de IA, así que se le atribuye a Crimson,
+# el agente por defecto. La UI hace lo mismo pero con el agente que el usuario tenga seleccionado
+# (ver JarvisApp._motor_mostrado en src/ui/app.py); aquí, sin esa selección, Crimson es el default.
 NOMBRES_MOTOR = {
     MOTOR_OLLAMA: "Crimson",
     MOTOR_GEMINI: "Clover",
-    MOTOR_ACCION: "Jarvis",
+    MOTOR_ACCION: "Crimson",
 }
 
 PALABRAS_CLAVE_BUSQUEDA_WEB = ("busca", "buscar", "internet", "investiga")
@@ -105,7 +109,7 @@ def decidir_motor(texto: str) -> str:
 
 def nombre_motor(motor: str) -> str:
     """Nombre de personalidad para mostrar/decir, según qué motor respondió."""
-    return NOMBRES_MOTOR.get(motor, "Jarvis")
+    return NOMBRES_MOTOR.get(motor, "Crimson")
 
 
 def es_busqueda_web(texto: str) -> bool:

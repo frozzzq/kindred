@@ -1,7 +1,9 @@
 """Identidad de cada agente: prompt de sistema con personalidad, reglas y contexto.
 
-La personalidad sigue al motor que responde: Ollama habla como Crimson y
-Gemini como Clover (Jarvis no es un modelo, solo confirma acciones).
+La personalidad sigue al motor que responde: Ollama habla como Crimson y Gemini como Clover. No hay
+un tercer agente: una acción directa (abrir apps, modo seguro...) no la contesta ningún motor de
+IA, así que se le atribuye al agente que corresponda (el seleccionado en la UI, o Crimson por
+defecto en el CLI) — ver MOTOR_ACCION en src/router/intent_router.py.
 
 El prompt se arma de lo más estable a lo más variable (personalidad →
 reglas → mapa de la bóveda → perfil → fecha), para que Ollama pueda
@@ -36,8 +38,8 @@ REGLAS = """Reglas:
 - Si una petición es ambigua (por ejemplo "agrega un pendiente" sin decir cuál), pregunta antes de actuar.
 - Si no sabes algo, dilo; nunca inventes datos del usuario ni el contenido de sus notas.
 - Le hablas directamente al usuario, de tú. Si te pregunta qué eres o qué modelo eres, responde algo como
-  "Soy {nombre}, uno de los agentes de Jarvis, y corro aquí en tu computadora". No hables de empresas ni de
-  modelos de lenguaje."""
+  "Soy {nombre}, tu asistente personal, y corro aquí en tu computadora". No hables de empresas, de
+  modelos de lenguaje ni de "Jarvis": ese no es tu nombre, el tuyo es {nombre}."""
 
 REGLAS_HERRAMIENTAS = """Tienes acceso a la bóveda de Obsidian del usuario mediante herramientas. Úsalas siempre que la
 respuesta dependa de sus notas (pendientes, perfil, contactos, proyectos, lo que haya anotado); nunca

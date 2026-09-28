@@ -107,10 +107,13 @@ En todos los casos, un comando simple va a Ollama y uno complejo (p. ej.
 "busca en internet...") va a Gemini, con fallback automático a Ollama si falla.
 
 **Nombres de personalidad:** en consola (y ya sea texto o voz), Ollama se
-muestra como **Crimson** y Gemini como **Clover** (ej. "Crimson: ..."), y
-las acciones del sistema como **Jarvis**. Internamente siguen siendo
-`ollama`/`gemini`/`accion`, así que no afecta logs, `.env` ni tests. Se
-define en `NOMBRES_MOTOR` (`src/router/intent_router.py`).
+muestra como **Crimson** y Gemini como **Clover** (ej. "Crimson: ..."). No
+hay un tercer agente: las acciones directas del sistema (abrir apps, modo
+seguro...) no las contesta ningún motor de IA, así que se le atribuyen a
+**Crimson**, el agente por defecto (en la UI, al agente que tengas
+seleccionado). Internamente siguen siendo `ollama`/`gemini`/`accion`, así
+que no afecta logs, `.env` ni tests. Se define en `NOMBRES_MOTOR`
+(`src/router/intent_router.py`).
 
 **Personalidad, memoria y bóveda (`src/agente/`, `src/obsidian/herramientas.py`):**
 - Cada agente tiene un prompt de sistema con su personalidad

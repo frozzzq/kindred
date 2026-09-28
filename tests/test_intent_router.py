@@ -75,12 +75,13 @@ def test_nombre_motor_gemini_es_clover():
     assert nombre_motor(MOTOR_GEMINI) == "Clover"
 
 
-def test_nombre_motor_accion_es_jarvis():
-    assert nombre_motor(MOTOR_ACCION) == "Jarvis"
+def test_nombre_motor_accion_es_crimson():
+    """No hay un tercer agente "Jarvis": una acción directa se atribuye a Crimson, el default."""
+    assert nombre_motor(MOTOR_ACCION) == "Crimson"
 
 
-def test_nombre_motor_desconocido_cae_a_jarvis():
-    assert nombre_motor("algo_raro") == "Jarvis"
+def test_nombre_motor_desconocido_cae_a_crimson():
+    assert nombre_motor("algo_raro") == "Crimson"
 
 
 def test_es_cierre_detecta_frases_para_cerrar():

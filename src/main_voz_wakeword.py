@@ -37,7 +37,10 @@ def main() -> None:
         print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
 
     conversacion = Conversacion()
-    print('Jarvis (voz manos libres, Fase 3). Di "hey jarvis" para activar. Ctrl+C para salir.')
+    # "hey jarvis" es solo la palabra de activación del modelo pre-entrenado de openWakeWord (no
+    # hay uno propio para "Crimson"/"Clover"; ver "Fuera de alcance" en CLAUDE.md), no el nombre
+    # de ningún agente.
+    print('Crimson y Clover (voz manos libres, Fase 3). Di "hey jarvis" para activar. Ctrl+C para salir.')
     while True:
         try:
             print("Esperando wake word...")
