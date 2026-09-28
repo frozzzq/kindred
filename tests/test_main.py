@@ -207,3 +207,41 @@ def test_cerrar_no_llega_a_preguntarle_a_ningun_motor(mock_ollama):
     procesar_comando("cierra la aplicación", confirmador=lambda descripcion: True)
 
     mock_ollama.assert_not_called()
+
+
+@patch("src.main.escribir_texto")
+def test_escribir_no_pide_confirmacion(mock_escribir):
+    mock_escribir.return_value = ResultadoAccion(exito=True, mensaje="Listo, ya lo escribí.")
+
+    resultado = procesar_comando("escribe hola mundo", confirmador=lambda d: (_ for _ in ()).throw(AssertionError("no debía confirmar")))
+
+    mock_escribir.assert_called_once_with("hola mundo")
+    assert resultado == Respuesta(texto="Listo, ya lo escribí.", motor=MOTOR_ACCION)
+
+
+@patch("src.main.hacer_click")
+def test_click_en_boton_neutro_no_pide_confirmacion(mock_click):
+    mock_click.return_value = ResultadoAccion(exito=True, mensaje="Hice click en 'Guardar'.")
+
+    resultado = procesar_comando("haz click en Guardar", confirmador=lambda d: (_ for _ in ()).throw(AssertionError("no debía confirmar")))
+
+    mock_click.assert_called_once_with("guardar")
+    assert resultado.texto == "Hice click en 'Guardar'."
+
+
+@patch("src.main.hacer_click")
+def test_click_en_boton_riesgoso_confirmado_ejecuta(mock_click):
+    mock_click.return_value = ResultadoAccion(exito=True, mensaje="Hice click en 'Eliminar'.")
+
+    resultado = procesar_comando("haz click en Eliminar", confirmador=lambda d: True)
+
+    mock_click.assert_called_once_with("eliminar")
+    assert resultado.texto == "Hice click en 'Eliminar'."
+
+
+@patch("src.main.hacer_click")
+def test_click_en_boton_riesgoso_sin_confirmar_no_ejecuta(mock_click):
+    resultado = procesar_comando("haz click en Eliminar", confirmador=lambda d: False)
+
+    mock_click.assert_not_called()
+    assert "ancel" in resultado.texto.lower()

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from src.actions.busqueda_web import construir_contexto_web
 from src.actions.confirmacion import Confirmador, confirmar_por_texto
-from src.actions.system_control import abrir_aplicacion
+from src.actions.system_control import abrir_aplicacion, escribir_texto, hacer_click
 from src.agente.conversacion import Conversacion
 from src.agente.personalidad import construir_prompt_sistema, quitar_muletilla_final
 from src.agente.reflexion import aprender_si_quedo_sin_guardar
@@ -33,7 +33,10 @@ from src.router.intent_router import (
     decidir_motor,
     es_busqueda_web,
     es_cierre,
+    es_click_riesgoso,
     extraer_nombre_app,
+    extraer_texto_a_escribir,
+    extraer_texto_click,
     nombre_motor,
 )
 
@@ -99,6 +102,16 @@ def procesar_comando(
         else:
             mensaje = "Cancelado, no abrí nada."
         return _responder(texto, mensaje, MOTOR_ACCION, conversacion)
+
+    texto_a_escribir = extraer_texto_a_escribir(texto)
+    if texto_a_escribir is not None:
+        return _responder(texto, escribir_texto(texto_a_escribir).mensaje, MOTOR_ACCION, conversacion)
+
+    texto_click = extraer_texto_click(texto)
+    if texto_click is not None:
+        if es_click_riesgoso(texto_click) and not confirmador(f"¿Confirmas que haga click en '{texto_click}'?"):
+            return _responder(texto, "Cancelado, no hice click.", MOTOR_ACCION, conversacion)
+        return _responder(texto, hacer_click(texto_click).mensaje, MOTOR_ACCION, conversacion)
 
     motor = motor_forzado or decidir_motor(texto)
 

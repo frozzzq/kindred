@@ -43,6 +43,21 @@ FRASES_CIERRE = (
     "apágate", "apagate",
 )
 
+PREFIJOS_CLICK = (
+    "haz click en ", "haz clic en ",
+    "click en ", "clic en ",
+    "presiona el botón ", "presiona el boton ",
+    "toca el botón ", "toca el boton ",
+)
+PREFIJOS_ESCRIBIR = ("escribe ", "teclea ")
+
+# Botones cuyo texto sugiere una acción irreversible: pedir confirmación antes de hacerles click.
+PALABRAS_CLAVE_RIESGO_CLICK = (
+    "eliminar", "borrar", "enviar", "comprar", "pagar",
+    "confirmar compra", "cancelar suscripción", "cancelar suscripcion",
+    "desinstalar", "vaciar papelera", "restablecer", "formatear",
+)
+
 
 def decidir_motor(texto: str) -> str:
     """Decide qué motor debe atender el texto, según palabras clave simples.
@@ -71,6 +86,41 @@ def es_cierre(texto: str) -> bool:
     """Indica si el comando pide cerrar la aplicación."""
     texto_normalizado = texto.lower().strip(SIGNOS_A_QUITAR)
     return any(frase in texto_normalizado for frase in FRASES_CIERRE)
+
+
+def extraer_texto_click(texto: str) -> str | None:
+    """Si el texto pide hacer click en algo, devuelve el texto del control a buscar (o None)."""
+    texto_normalizado = texto.strip(SIGNOS_A_QUITAR).lower()
+    for prefijo in PREFIJOS_CLICK:
+        indice = texto_normalizado.find(prefijo)
+        if indice == -1:
+            continue
+        resto = texto_normalizado[indice + len(prefijo):].strip(SIGNOS_A_QUITAR)
+        return resto or None
+    return None
+
+
+def extraer_texto_a_escribir(texto: str) -> str | None:
+    """Si el texto pide escribir/teclear algo, devuelve lo que hay que escribir (o None).
+
+    Conserva mayúsculas/minúsculas originales (a diferencia de extraer_texto_click):
+    lo que se va a teclear debe verse como se dictó, no forzado a minúsculas.
+    """
+    texto_normalizado = texto.strip(SIGNOS_A_QUITAR)
+    en_minusculas = texto_normalizado.lower()
+    for prefijo in PREFIJOS_ESCRIBIR:
+        indice = en_minusculas.find(prefijo)
+        if indice == -1:
+            continue
+        resto = texto_normalizado[indice + len(prefijo):].strip(SIGNOS_A_QUITAR)
+        return resto or None
+    return None
+
+
+def es_click_riesgoso(texto_boton: str) -> bool:
+    """Indica si el texto del control sugiere una acción irreversible (eliminar, enviar, comprar...)."""
+    texto_normalizado = texto_boton.lower()
+    return any(palabra in texto_normalizado for palabra in PALABRAS_CLAVE_RIESGO_CLICK)
 
 
 def extraer_nombre_app(texto: str) -> str | None:

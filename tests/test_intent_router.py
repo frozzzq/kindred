@@ -5,7 +5,10 @@ from src.router.intent_router import (
     decidir_motor,
     es_busqueda_web,
     es_cierre,
+    es_click_riesgoso,
     extraer_nombre_app,
+    extraer_texto_a_escribir,
+    extraer_texto_click,
     nombre_motor,
 )
 
@@ -77,3 +80,33 @@ def test_es_cierre_detecta_frases_para_cerrar():
 def test_es_cierre_sin_frase_de_cierre():
     assert es_cierre("recuérdame comprar leche") is False
     assert es_cierre("no cierres nada") is False
+
+
+def test_extraer_texto_click_con_varias_frases():
+    assert extraer_texto_click("haz click en Guardar") == "guardar"
+    assert extraer_texto_click("Clic en Aceptar") == "aceptar"
+    assert extraer_texto_click("presiona el botón Enviar.") == "enviar"
+
+
+def test_extraer_texto_click_sin_frase_devuelve_none():
+    assert extraer_texto_click("recuérdame comprar leche") is None
+
+
+def test_extraer_texto_a_escribir_conserva_mayusculas():
+    assert extraer_texto_a_escribir("escribe Hola Mundo") == "Hola Mundo"
+    assert extraer_texto_a_escribir("teclea mi correo es test@test.com") == "mi correo es test@test.com"
+
+
+def test_extraer_texto_a_escribir_sin_frase_devuelve_none():
+    assert extraer_texto_a_escribir("recuérdame comprar leche") is None
+
+
+def test_es_click_riesgoso_detecta_palabras_de_riesgo():
+    assert es_click_riesgoso("Eliminar") is True
+    assert es_click_riesgoso("Confirmar compra") is True
+    assert es_click_riesgoso("Enviar") is True
+
+
+def test_es_click_riesgoso_con_boton_neutro():
+    assert es_click_riesgoso("Guardar") is False
+    assert es_click_riesgoso("Aceptar") is False

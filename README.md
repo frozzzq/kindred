@@ -8,13 +8,14 @@ Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
 Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 (completa, con wake
-word) + Fase 4 (parcial) + Fase 5 (parcial) + UI de escritorio**
-(scaffold, MVP por CLI de texto con Ollama/Gemini, integración con una
-bóveda de Obsidian como memoria, voz con Whisper local + ElevenLabs —
+word) + Fase 4 (casi completa) + Fase 5 (parcial) + UI de escritorio**
+(MVP por CLI de texto con Ollama/Gemini, integración con una bóveda de
+Obsidian como memoria, voz con Whisper local + edge-tts/ElevenLabs —
 push-to-talk o manos libres con wake word "hey jarvis" —, control del
-sistema: abrir aplicaciones y búsqueda web con confirmación obligatoria,
-métricas de uso, y una UI de escritorio con Flet). Sin clicks/escritura
-automática ni correo/redes sociales todavía.
+sistema: abrir aplicaciones, clicks y escritura automática, y búsqueda web,
+todo con confirmación explícita para lo irreversible, métricas de uso, y
+una UI de escritorio con Flet donde el agente se representa como un grafo
+3D holográfico de tu bóveda de Obsidian). Sin correo/redes sociales todavía.
 
 ### Lanzadores rápidos
 
@@ -153,9 +154,27 @@ Gemini para respuestas basadas en resultados reales, no solo en su
 conocimiento estático. Un comando tipo "ciérrate" o "cierra la aplicación"
 termina el programa (o cierra la ventana en la UI) — detectado por
 palabras clave (`es_cierre` en `intent_router.py`), sin pasar por ningún
-motor de IA. **Toda acción (abrir una app, cerrar la aplicación) pide
-confirmación explícita antes de ejecutarse** — por texto en el CLI de
-texto, por voz ("di sí o no") en el CLI de voz.
+motor de IA.
+
+**Clicks y escritura automática:** "haz click en Guardar" busca un control
+(botón, casilla, pestaña...) con ese texto visible en la **ventana
+activa** — usa la API de accesibilidad de Windows vía `pywinauto`
+(`src/actions/system_control.py`), no coordenadas de píxel, así que no
+depende de la resolución ni de dónde esté la ventana. Funciona bien en
+apps nativas de Windows (Explorador, Notepad, Office, la mayoría de
+programas de escritorio); en apps con widgets dibujados a mano (ej.
+Tkinter) o algunas apps web, los controles pueden no tener nombre
+accesible y no encontrarse — se avisa en vez de fallar en silencio. "escribe
+esto..." pega el texto (vía portapapeles, para no depender de escapar
+caracteres especiales del texto dictado) donde esté el foco en ese
+momento, y restaura el portapapeles anterior al terminar.
+
+**Toda acción irreversible pide confirmación explícita antes de
+ejecutarse** — por texto en el CLI de texto, por voz ("di sí o no") en el
+CLI de voz: abrir una app, cerrar la aplicación, y hacer click en un
+control cuyo texto sugiera algo irreversible (eliminar, enviar, comprar,
+pagar, desinstalar...). Escribir texto y hacer click en controles neutros
+(Guardar, Aceptar, Siguiente...) se ejecutan directo, sin preguntar.
 
 **Búsqueda web auxiliar para Ollama:** Ollama no tiene acceso nativo a
 internet (a diferencia de Gemini). Cuando un comando de búsqueda termina
