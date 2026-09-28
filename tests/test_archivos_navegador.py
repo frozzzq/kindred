@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.actions.archivos import abrir_carpeta, carpetas_permitidas, resolver_carpeta
+from src.actions.archivos import abrir_carpeta, carpetas_permitidas, es_carpeta_conocida, resolver_carpeta
 from src.actions.navegador import abrir_url, parece_url
 
 
@@ -30,10 +30,31 @@ def test_carpetas_permitidas_configurables(inicio_falso, monkeypatch):
 
 @pytest.mark.parametrize(
     "dicho, esperada",
-    [("descargas", "Downloads"), ("Imágenes", "Pictures"), ("proyectos", "Proyectos"), ("documentos.", "Documents")],
+    [
+        ("descargas", "Downloads"),
+        ("Imágenes", "Pictures"),
+        ("proyectos", "Proyectos"),
+        ("documentos.", "Documents"),
+        ("de descargas", "Downloads"),  # queda de "carpeta de descargas" al quitar "carpeta "
+    ],
 )
 def test_resolver_carpeta(inicio_falso, dicho, esperada):
     assert resolver_carpeta(dicho).name == esperada
+
+
+@pytest.mark.parametrize(
+    "dicho, esperado",
+    [
+        ("descargas", True),
+        ("mis documentos", True),
+        ("el escritorio", False),  # es_carpeta_conocida no quita artículos: eso lo hace el router antes
+        ("escritorio", True),
+        ("spotify", False),
+        ("proyectos", False),  # es una subcarpeta real, pero no una de las conocidas por nombre
+    ],
+)
+def test_es_carpeta_conocida(dicho, esperado):
+    assert es_carpeta_conocida(dicho) is esperado
 
 
 def test_no_resuelve_carpetas_fuera_de_las_permitidas(inicio_falso):

@@ -34,9 +34,23 @@ def _dentro_de_permitidas(ruta: Path) -> bool:
     return any(ruta == raiz or ruta.is_relative_to(raiz) for raiz in carpetas_permitidas())
 
 
+def es_carpeta_conocida(nombre: str) -> bool:
+    """True si el nombre (sin "abre "/artículo) es una de las carpetas de usuario reconocidas.
+
+    Se usa para decidir la intención ANTES de buscarlo entre las aplicaciones instaladas: "el
+    escritorio" o "mis documentos" se confundían con apps de nombre parecido ("Conexión a
+    Escritorio remoto", "Documentación de Referencia") porque el atajo probaba primero como app.
+    """
+    return normalizar(nombre.strip(SIGNOS_A_QUITAR)) in NOMBRES_CARPETAS
+
+
 def resolver_carpeta(nombre: str) -> Path | None:
     """Carpeta permitida que corresponde al nombre: una raíz ("descargas"), una ruta, o una subcarpeta directa."""
     consulta = nombre.strip(SIGNOS_A_QUITAR)
+    # "carpeta de descargas" deja "de descargas" tras quitar el prefijo "carpeta "; el "de" no es
+    # parte del nombre.
+    if normalizar(consulta).startswith("de "):
+        consulta = consulta[len("de "):].strip(SIGNOS_A_QUITAR)
     clave = normalizar(consulta)
     inicio = Path.home()
 
