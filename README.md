@@ -8,23 +8,27 @@ Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
 Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 (completa, con wake
-word) + Fase 4 (casi completa) + Fase 5 (parcial) + Fase 6 + UI de
-escritorio** (MVP por CLI de texto con Ollama/Gemini, integración con una
-bóveda de Obsidian como memoria, voz con Whisper local + edge-tts/ElevenLabs
-— push-to-talk o manos libres con wake word "hey jarvis" —, control del
-sistema: abrir cualquier app instalada, páginas y carpetas, clicks y
-escritura automática, y búsqueda web; todas las acciones pasan por un
-registro de herramientas con permisos, confirmación para lo irreversible,
-modo seguro y auditoría; métricas de uso, y una UI de escritorio con Flet
+word) + Fase 4 (casi completa) + Fase 5 (parcial) + Fase 6 + Fase 7
+(parcial) + UI de escritorio** (MVP por CLI de texto con Ollama/Gemini,
+integración con una bóveda de Obsidian como memoria, voz con Whisper local
++ edge-tts/ElevenLabs — push-to-talk o manos libres con wake word "hey
+jarvis" —, control del sistema: abrir cualquier app instalada, páginas y
+carpetas, clicks y escritura automática, y búsqueda web; todas las
+acciones pasan por un registro de herramientas con permisos, confirmación
+para lo irreversible, modo seguro y auditoría; recordatorios con fecha/hora
+y tareas recurrentes avisados por un núcleo en segundo plano —
+notificación de Windows + voz, briefing matutino y de cierre del día,
+autoarranque opcional—; métricas de uso, y una UI de escritorio con Flet
 donde el agente se representa como un grafo 3D holográfico de tu bóveda de
 Obsidian). Sin correo/redes sociales todavía: ver el roadmap en `CLAUDE.md`.
 
 ### Lanzadores rápidos
 
 Para no tener que abrir consola cada vez: `Jarvis-UI.bat`, `Jarvis-Texto.bat`,
-`Jarvis-Voz.bat`, `Jarvis-VozManosLibres.bat` y `Jarvis-Metricas.bat` en la
-raíz del repo activan el entorno y corren el modo correspondiente con doble
-clic. Hay accesos directos a cada uno en el escritorio.
+`Jarvis-Voz.bat`, `Jarvis-VozManosLibres.bat`, `Jarvis-Metricas.bat` y
+`Jarvis-Nucleo.bat` (Fase 7, recordatorios) en la raíz del repo activan el
+entorno y corren el modo correspondiente con doble clic. Hay accesos
+directos en el escritorio a los primeros cinco.
 
 **Modelo de Ollama:** usa `qwen3:8b` por defecto (mejor razonamiento que
 `mistral:7b`, confirmado en pruebas reales) con `num_ctx=8192` en las
@@ -199,6 +203,30 @@ respondiéndolo Ollama (router lo eligió, o Gemini falló y cayó aquí como
 fallback — el caso típico sin facturación configurada en Gemini), se le
 inyectan resultados reales de DuckDuckGo (`src/actions/busqueda_web.py`,
 sin API key ni costo) como contexto adicional.
+
+**Recordatorios y proactividad (Fase 7):** "recuérdame mañana a las 6pm que llame al doctor" guarda
+el pendiente con fecha y hora (`src/obsidian/fechas.py`, lenguaje natural en español); "el viernes"
+sin hora queda como fecha de referencia (sale en el briefing), no dispara un aviso puntual — y una
+hora ambigua como "a las 8" sin am/pm no se adivina, para no sonar 12 horas antes o después de lo
+que quisiste decir. "tomar medicina, diario a las 9pm" o "sacar la basura los lunes y jueves a las
+8am" quedan en `02-Tareas/Recurrentes.md`.
+
+Todo esto lo vigila un proceso aparte, el **núcleo** (`src/nucleo/`, `Jarvis-Nucleo.bat`), que corre
+independiente de si tienes la UI, la voz o el CLI abiertos: cada 30 segundos revisa si algún
+recordatorio ya venció o si toca el briefing, y avisa con una notificación de Windows y en voz alta
+(nunca se repite el mismo aviso, ni si reinicias el proceso). `HORA_BRIEFING`/`HORA_CIERRE` en tu
+`.env` disparan un resumen de la mañana y de cierre del día con tus pendientes, vencidos y
+recurrentes de hoy (lo redacta Crimson); `HORARIO_SILENCIO` (ej. `23:00-07:00`) retrasa cualquier
+aviso hasta que termine, en vez de mandarlo a media noche. `00-Sistema/HEARTBEAT.md` se actualiza
+cada vuelta, para que puedas ver que sigue vivo.
+
+Para que el núcleo arranque solo al iniciar sesión en Windows (sin tener que abrir el `.bat` a
+mano), pídeselo al agente o corre:
+```bash
+python -c "from src.nucleo.autoarranque import registrar_tarea_programada as r; print(r())"
+```
+Esto registra una tarea en el Programador de tareas de Windows — es un cambio persistente del
+sistema, así que no se activa solo. Para quitarlo, usa `quitar_tarea_programada()` del mismo módulo.
 
 **Métricas de uso (Fase 5):**
 ```bash

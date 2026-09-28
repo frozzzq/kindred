@@ -96,17 +96,40 @@ Reglas:
   (`seleccionar_grupos(..., modelo_local=True)`). Al agregar herramientas nuevas, medir con el modelo
   real que las preguntas sobre la bóveda sigan llamando `leer_nota`.
 
-### Fase 7 — Tiempo y proactividad
-- Núcleo como proceso de fondo con autoarranque (Programador de tareas de Windows); la UI pasa a ser cliente.
+### Fase 7 — Tiempo y proactividad ← **implementada (parcial), falta confirmación del usuario**
+- Núcleo como proceso de fondo (`src/nucleo/`, `Jarvis-Nucleo.bat`), independiente de la UI/voz/CLI:
+  heartbeat cada 30 s que revisa recordatorios y briefings, y avisa por Windows (`win11toast`) + voz.
+  Autoarranque con el Programador de tareas de Windows vía `src/nucleo/autoarranque.py`
+  (`registrar_tarea_programada()`): existe pero no se activa solo, hay que correrlo (o pedírselo al
+  agente) a propósito, porque es un cambio persistente del sistema.
 - Pendientes con fecha/hora en formato Obsidian Tasks: `- [ ] Entregar tarea 📅 2026-09-30 ⏰ 2026-09-30 18:00`;
-  fechas en lenguaje natural ("mañana a las 6", "el viernes") con `dateparser` en español.
-- Recurrentes en `02-Tareas/Recurrentes.md` (ej. "tomar medicina, diario 21:00").
-- Heartbeat cada 30 s + `00-Sistema/HEARTBEAT.md`: checklist editable de qué vigilar (idea de OpenClaw).
-- Notificaciones de Windows + aviso por voz si la UI está abierta.
-- **Briefing matutino y cierre del día** a hora configurable (pendientes, vencidos, agenda, clima).
-- Piper `es_MX-claude-high` como TTS offline de respaldo; diario automático por día (memoria episódica);
-  rotar `Logs-Interacciones.md` por mes.
+  fechas en lenguaje natural ("mañana a las 6pm", "el viernes") con `dateparser` + reglas propias en
+  `src/obsidian/fechas.py` (una hora ambigua como "a las 8" sin am/pm no se adivina: mejor sin
+  recordatorio exacto que a la hora equivocada). 📅 sin ⏰ es una fecha de referencia (sale en el
+  briefing); ⏰ dispara un aviso puntual.
+- Recurrentes en `02-Tareas/Recurrentes.md` (`src/obsidian/recurrentes.py`, tag propio 🔁): diario o
+  en días de la semana concretos, siempre con una hora ("tomar medicina, diario a las 9pm").
+- Estado técnico (qué ya se avisó, para no duplicar; último briefing de cada tipo) en SQLite,
+  `src/nucleo/estado.py` (`%LOCALAPPDATA%\kindred\estado.db`), no en la bóveda.
+- `00-Sistema/HEARTBEAT.md`: se reescribe cada vuelta con la hora del último ciclo (por ahora solo
+  estado, no es aún el checklist editable de monitores de OpenClaw — eso llega con los monitores de
+  percances de la Fase 9).
+- **Briefing matutino y cierre del día** a `HORA_BRIEFING`/`HORA_CIERRE` (pendientes de hoy, vencidos,
+  recurrentes de hoy; lo redacta Crimson con `preguntar_ollama`, con un resumen sin IA de respaldo si
+  Ollama falla). `HORARIO_SILENCIO` retrasa cualquier aviso (recordatorio o briefing) sin marcarlo
+  como avisado, para que salga apenas termine el silencio.
 - **Hecho cuando**: un recordatorio a una hora dada llega aunque la UI esté cerrada, sin duplicarse.
+  Verificado en pruebas reales (bóveda de copia): agrega con fecha natural, `ciclo()` avisa una sola
+  vez al vencer y no se repite, `HEARTBEAT.md` se actualiza, y el briefing usa datos reales de la bóveda.
+- **Pendiente dentro de esta fase** (no se hizo en este pase, para no sobrecargarlo): Piper como TTS
+  offline de respaldo; diario automático por día (memoria episódica); rotar `Logs-Interacciones.md`
+  por mes; unificar `main.py`/`main_ui.py`/`main_voz.py` como clientes del núcleo por IPC (hoy cada
+  uno sigue llamando `procesar_comando` directo — se necesita de verdad hasta que un canal como
+  Telegram, Fase 8, deba compartir estado en vivo con el núcleo).
+- Aprendido al probar: `win11toast` (usa `winrt`) provoca un access violation nativo si se carga en
+  el mismo proceso *después* de `onnxruntime` (openwakeword/VAD/faster-whisper) — nunca al revés. El
+  núcleo corre en su propio proceso por esto también, y `tests/conftest.py` fuerza el orden seguro
+  para que la suite completa no truene.
 
 ### Fase 8 — Telegram (canal móvil)
 - Bot bidireccional: texto y notas de voz (transcritas con Whisper); solo responde a `TELEGRAM_CHAT_ID`.
@@ -184,16 +207,17 @@ kindred/
 │  ├─ main_ui.py, main_voz.py, main_voz_wakeword.py, main_metricas.py
 │  ├─ router/intent_router.py   # atajos por palabras clave
 │  ├─ herramientas/             # registro con permisos y auditoría (Fase 6)
+│  ├─ nucleo/                   # heartbeat, recordatorios, briefing, autoarranque (Fase 7)
 │  ├─ engines/                  # ollama_client, gemini_client
 │  ├─ agente/                   # personalidad, conversación, reflexión
-│  ├─ obsidian/                 # lectura/escritura, herramientas de la bóveda, grafo
+│  ├─ obsidian/                 # lectura/escritura, herramientas de la bóveda, grafo, fechas, recurrentes
 │  ├─ actions/                  # apps, clicks/escritura, búsqueda web, confirmación
 │  ├─ voice/                    # stt, tts, vad, activación, escucha continua, wake word
 │  └─ ui/                       # app Flet, grafo 3D, paletas
 └─ tests/
 ```
 
-Se mantiene la separación por responsabilidad; módulos nuevos de fases futuras: `nucleo/` (F7),
+Se mantiene la separación por responsabilidad; módulos nuevos de fases futuras:
 `canales/telegram.py` (F8), `canales/telefono.py` (F9), `integraciones/google.py` (F11).
 
 ## 📂 Bóveda de Obsidian
@@ -263,5 +287,7 @@ GOOGLE_OAUTH_CLIENTE=       # ruta al JSON del cliente OAuth (fuera del repo)
 
 ## ▶️ Siguiente objetivo
 
-La **Fase 6** está implementada y verificada en la PC; esperar la confirmación del usuario antes
-de empezar la Fase 7.
+Las **Fases 6 y 7** están implementadas y verificadas (Fase 7 con lo descrito arriba como
+"pendiente dentro de esta fase" fuera de este pase); esperar la confirmación del usuario antes de
+empezar la Fase 8. El autoarranque de la Fase 7 existe pero no está activado en el sistema real
+todavía — ofrecerlo y activarlo solo si el usuario lo pide.
