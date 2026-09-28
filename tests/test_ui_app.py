@@ -82,6 +82,36 @@ def test_es_su_propio_eco_con_texto_no_relacionado():
     assert app._es_su_propio_eco("abre la calculadora") is False
 
 
+def test_es_su_propio_eco_con_una_sola_oracion_de_una_respuesta_larga():
+    """Caso real: el micrófono capta solo una oración suelta de una respuesta con varias.
+
+    Con un ratio() normal esto daba una similitud de 0.3-0.4 (por la diferencia de longitud
+    entre la oración oída y la respuesta completa) y no se detectaba como eco.
+    """
+    app = JarvisApp(MagicMock())
+    app._texto_hablando = (
+        "Tienes tres pendientes para hoy. Llamar al dentista para agendar tu limpieza. "
+        "Entregar el reporte de física antes de las cinco. Y comprar croquetas para el perro."
+    )
+
+    assert app._es_su_propio_eco("Tienes tres pendientes para hoy.") is True
+    assert app._es_su_propio_eco("Llamar al dentista para agendar tu limpieza.") is True
+    assert app._es_su_propio_eco("y comprar croquetas para el perro.") is True
+    # con un error de transcripción ("cinto" en vez de "cinco") sigue reconociéndose
+    assert app._es_su_propio_eco("Entregar el reporte de física antes de la cinto.") is True
+
+
+def test_interrupcion_real_no_se_confunde_con_eco_de_respuesta_larga():
+    app = JarvisApp(MagicMock())
+    app._texto_hablando = (
+        "Tienes tres pendientes para hoy. Llamar al dentista para agendar tu limpieza. "
+        "Entregar el reporte de física antes de las cinco. Y comprar croquetas para el perro."
+    )
+
+    assert app._es_su_propio_eco("no espera, mejor dime el clima") is False
+    assert app._es_su_propio_eco("olvida eso, mejor dime la hora") is False
+
+
 def test_frase_parecida_a_lo_que_dice_se_ignora_como_eco():
     """Sin cancelación de eco de hardware: si se parece a lo que está diciendo, se asume su propio eco."""
     app, patcher = _app_escuchando("tienes tres pendientes para hoy")

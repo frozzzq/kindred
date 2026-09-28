@@ -48,7 +48,14 @@ SEGUNDOS_ENTRE_ESTADOS = 0.5
 # Ya no hace falta decir su nombre para interrumpirlo: cualquier frase durante un turno en
 # curso corta y se atiende. El riesgo es oír su propio eco por las bocinas; si lo detectado se
 # parece demasiado a lo que está diciendo en ese momento, se asume que es eco y se ignora.
-SIMILITUD_MAXIMA_ANTES_DE_IGNORAR = 0.5
+# Es una fracción de COBERTURA (cuánto del tramo más largo de lo oído aparece seguido dentro de lo
+# que dice), no un ratio() normal: el micrófono suele captar solo una oración suelta de una
+# respuesta más larga, y comparar esa oración corta contra el texto completo con ratio() daba una
+# similitud baja (0.3-0.4) aunque fuera eco real, porque ratio() penaliza la diferencia de longitud
+# entre ambos textos. Sumar todos los bloques que coinciden (en vez de tomar solo el más largo)
+# tampoco sirve: dos oraciones cualquiera en español comparten de sobra artículos y preposiciones
+# sueltos ("de", "la", "el"...) y esa suma da falsos positivos (0.6-0.85 con frases sin relación).
+COBERTURA_MINIMA_ANTES_DE_IGNORAR = 0.7
 
 
 class JarvisApp:
@@ -345,8 +352,15 @@ class JarvisApp:
         """
         if not self._texto_hablando:
             return False
-        similitud = difflib.SequenceMatcher(None, normalizar(texto), normalizar(self._texto_hablando)).ratio()
-        return similitud >= SIMILITUD_MAXIMA_ANTES_DE_IGNORAR
+        oido = normalizar(texto)
+        if not oido:
+            return False
+        dicho = normalizar(self._texto_hablando)
+        # Cobertura del tramo contiguo más largo, no ratio(): lo oído suele ser solo una oración de
+        # una respuesta más larga, y esa oración aparece como un fragmento seguido dentro de ella.
+        bloque = difflib.SequenceMatcher(None, oido, dicho, autojunk=False).find_longest_match()
+        cobertura = bloque.size / len(oido)
+        return cobertura >= COBERTURA_MINIMA_ANTES_DE_IGNORAR
 
     def _al_escuchar_frase(self, audio) -> None:
         """Llega una frase de la escucha continua (incluso mientras el agente habla, para poder
