@@ -8,14 +8,16 @@ Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
 arquitectura completa y el plan de fases.
 
 Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 (completa, con wake
-word) + Fase 4 (casi completa) + Fase 5 (parcial) + UI de escritorio**
-(MVP por CLI de texto con Ollama/Gemini, integración con una bóveda de
-Obsidian como memoria, voz con Whisper local + edge-tts/ElevenLabs —
-push-to-talk o manos libres con wake word "hey jarvis" —, control del
-sistema: abrir aplicaciones, clicks y escritura automática, y búsqueda web,
-todo con confirmación explícita para lo irreversible, métricas de uso, y
-una UI de escritorio con Flet donde el agente se representa como un grafo
-3D holográfico de tu bóveda de Obsidian). Sin correo/redes sociales todavía.
+word) + Fase 4 (casi completa) + Fase 5 (parcial) + Fase 6 + UI de
+escritorio** (MVP por CLI de texto con Ollama/Gemini, integración con una
+bóveda de Obsidian como memoria, voz con Whisper local + edge-tts/ElevenLabs
+— push-to-talk o manos libres con wake word "hey jarvis" —, control del
+sistema: abrir cualquier app instalada, páginas y carpetas, clicks y
+escritura automática, y búsqueda web; todas las acciones pasan por un
+registro de herramientas con permisos, confirmación para lo irreversible,
+modo seguro y auditoría; métricas de uso, y una UI de escritorio con Flet
+donde el agente se representa como un grafo 3D holográfico de tu bóveda de
+Obsidian). Sin correo/redes sociales todavía: ver el roadmap en `CLAUDE.md`.
 
 ### Lanzadores rápidos
 
@@ -145,16 +147,31 @@ cuentas gratuitas solo pueden usar voces `premade`, no las de la Voice
 Library, vía API). Si no se configura una específica, cada servicio cae a
 su variable genérica (`EDGE_TTS_VOICE`/`ELEVENLABS_VOICE_ID`).
 
-**Acciones sobre el sistema (Fase 4):** un comando tipo "abre la
-calculadora" abre la app directamente (lista blanca fija en
-`src/actions/system_control.py`, ampliable ahí mismo) — nunca pasa por
-Ollama/Gemini, porque ellos no pueden ejecutar acciones reales. Un comando
-tipo "busca en internet..." activa el grounding con Google Search de
-Gemini para respuestas basadas en resultados reales, no solo en su
-conocimiento estático. Un comando tipo "ciérrate" o "cierra la aplicación"
-termina el programa (o cierra la ventana en la UI) — detectado por
-palabras clave (`es_cierre` en `intent_router.py`), sin pasar por ningún
-motor de IA.
+**Herramientas con permisos (Fase 6):** todo lo que el agente hace en tu
+PC o en tu bóveda pasa por un registro único (`src/herramientas/`): cada
+herramienta declara su riesgo (lectura, bajo, alto, crítico), las de riesgo
+alto piden confirmación, y cada acción queda anotada en
+`00-Sistema/Registro-Acciones.md`. **Crimson y Clover usan las mismas
+herramientas** (Clover ya tiene function calling), así que puedes pedir
+varias cosas en un turno: "abre spotify y dime qué pendientes tengo". Para
+pedidos de varios pasos Clover es más confiable: Crimson (modelo local de
+8B) a veces hace solo el primero. Por lo mismo, a Crimson solo se le dan
+las herramientas de abrir apps/páginas/carpetas cuando el mensaje pide
+abrir algo; con ellas de más dejaba de consultar la bóveda.
+Di **"modo seguro"** para que solo consulte sin hacer acciones, y **"sal del
+modo seguro"** para volver.
+
+**Abrir cualquier app, página o carpeta:** "abre fotoshop" abre la app
+instalada que más se parezca (usa el índice del menú Inicio de Windows,
+`src/actions/aplicaciones.py`; se renueva cada día o cuando no encuentra
+algo). Si hay varias parecidas, pregunta cuál. Nombres propios tuyos en
+`00-Sistema/Alias-Aplicaciones.md` (una línea por alias: `- el editor:
+Visual Studio Code`). "abre youtube.com" abre la página en una pestaña
+nueva y "abre la carpeta descargas" abre la carpeta, solo dentro de
+`CARPETAS_PERMITIDAS`. Abrir no pide confirmación. Un comando tipo "busca
+en internet..." activa el grounding con Google Search de Gemini. Un comando
+tipo "ciérrate" o "cierra la aplicación" termina el programa (o cierra la
+ventana en la UI), con confirmación.
 
 **Clicks y escritura automática:** "haz click en Guardar" busca un control
 (botón, casilla, pestaña...) con ese texto visible en la **ventana
@@ -171,10 +188,10 @@ momento, y restaura el portapapeles anterior al terminar.
 
 **Toda acción irreversible pide confirmación explícita antes de
 ejecutarse** — por texto en el CLI de texto, por voz ("di sí o no") en el
-CLI de voz: abrir una app, cerrar la aplicación, y hacer click en un
-control cuyo texto sugiera algo irreversible (eliminar, enviar, comprar,
-pagar, desinstalar...). Escribir texto y hacer click en controles neutros
-(Guardar, Aceptar, Siguiente...) se ejecutan directo, sin preguntar.
+CLI de voz: cerrar la aplicación y hacer click en un control cuyo texto
+sugiera algo irreversible (eliminar, enviar, comprar, pagar,
+desinstalar...). Abrir apps, escribir texto y hacer click en controles
+neutros (Guardar, Aceptar, Siguiente...) se ejecutan directo, sin preguntar.
 
 **Búsqueda web auxiliar para Ollama:** Ollama no tiene acceso nativo a
 internet (a diferencia de Gemini). Cuando un comando de búsqueda termina

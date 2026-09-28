@@ -78,7 +78,7 @@ Reglas:
 
 ## 🗺️ Roadmap
 
-### Fase 6 — Cimientos: herramientas con permisos ← **siguiente**
+### Fase 6 — Cimientos: herramientas con permisos ← **implementada, falta confirmación del usuario**
 - Registro de herramientas con riesgo, confirmación, auditoría y modo seguro (`src/herramientas/`).
 - Crimson y Clover usan las mismas herramientas; **Clover gana function calling** (bucle manual en
   `gemini_client.py` para que todo pase por los permisos).
@@ -91,6 +91,10 @@ Reglas:
 - **Hecho cuando**: "abre fotoshop" abre Photoshop sin preguntar; Clover encadena varias
   herramientas en un turno; "haz click en Eliminar" pide confirmación; en modo seguro se rechazan
   acciones; todo queda en `Registro-Acciones.md`; tests en verde.
+- Aprendido al probar: qwen3:8b (sin razonamiento) deja de consultar la bóveda si recibe herramientas
+  que no vienen al caso, así que a Crimson solo se le dan los grupos que el mensaje pide
+  (`seleccionar_grupos(..., modelo_local=True)`). Al agregar herramientas nuevas, medir con el modelo
+  real que las preguntas sobre la bóveda sigan llamando `leer_nota`.
 
 ### Fase 7 — Tiempo y proactividad
 - Núcleo como proceso de fondo con autoarranque (Programador de tareas de Windows); la UI pasa a ser cliente.
@@ -259,5 +263,5 @@ GOOGLE_OAUTH_CLIENTE=       # ruta al JSON del cliente OAuth (fuera del repo)
 
 ## ▶️ Siguiente objetivo
 
-Implementar la **Fase 6** según su criterio de "hecho" y esperar la confirmación del usuario
-antes de empezar la Fase 7.
+La **Fase 6** está implementada y verificada en la PC; esperar la confirmación del usuario antes
+de empezar la Fase 7.
