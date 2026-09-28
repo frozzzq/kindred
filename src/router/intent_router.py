@@ -10,6 +10,8 @@ directamente (un LLM de texto no puede abrir una app de verdad), y la
 búsqueda web se marca aparte para activar el grounding de Gemini.
 """
 
+import re
+
 MOTOR_OLLAMA = "ollama"
 MOTOR_GEMINI = "gemini"
 MOTOR_ACCION = "accion"
@@ -51,6 +53,11 @@ PREFIJOS_CLICK = (
 )
 PREFIJOS_ESCRIBIR = ("escribe ", "teclea ")
 
+FRASES_SALIR_MODO_SEGURO = (
+    "sal del modo seguro", "salir del modo seguro", "sal de modo seguro",
+    "desactiva el modo seguro", "quita el modo seguro", "apaga el modo seguro",
+)
+
 # Botones cuyo texto sugiere una acción irreversible: pedir confirmación antes de hacerles click.
 PALABRAS_CLAVE_RIESGO_CLICK = (
     "eliminar", "borrar", "enviar", "comprar", "pagar",
@@ -86,6 +93,28 @@ def es_cierre(texto: str) -> bool:
     """Indica si el comando pide cerrar la aplicación."""
     texto_normalizado = texto.lower().strip(SIGNOS_A_QUITAR)
     return any(frase in texto_normalizado for frase in FRASES_CIERRE)
+
+
+_VARIAS_INSTRUCCIONES = re.compile(r",|\s(y|e|luego|después|despues|para|con)\s", re.IGNORECASE)
+
+
+def parece_varias_instrucciones(texto: str) -> bool:
+    """Ej. "spotify y pon mi playlist" son dos cosas: mejor que lo resuelva el agente con herramientas."""
+    return bool(_VARIAS_INSTRUCCIONES.search(texto))
+
+
+def cambio_de_modo_seguro(texto: str) -> bool | None:
+    """True si pide activar el modo seguro, False si pide salir de él, None si no habla de eso.
+
+    Ante la duda (ej. "¿estás en modo seguro?") se activa: equivocarse hacia
+    lo más restrictivo es inofensivo.
+    """
+    texto_normalizado = texto.lower()
+    if any(frase in texto_normalizado for frase in FRASES_SALIR_MODO_SEGURO):
+        return False
+    if "modo seguro" in texto_normalizado:
+        return True
+    return None
 
 
 def extraer_texto_click(texto: str) -> str | None:

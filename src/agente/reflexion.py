@@ -148,8 +148,8 @@ def aprender_si_quedo_sin_guardar(texto_usuario: str, herramientas_usadas: list[
     En pruebas reales el modelo a veces respondía "Mucho gusto, Josué" sin
     llamar a recordar_sobre_usuario. Esperar a la reflexión (cada 10
     interacciones) sería demasiado tarde para algo como su nombre. Corre en
-    segundo plano, sin sumar latencia; tampoco Gemini tiene herramientas,
-    así que esto es lo que le permite aprender a Clover.
+    segundo plano, sin sumar latencia; también cubre a Clover cuando responde
+    con búsqueda web (ahí va sin herramientas).
     """
     if "recordar_sobre_usuario" in herramientas_usadas or not _PARECE_DATO_PERSONAL.search(texto_usuario):
         return

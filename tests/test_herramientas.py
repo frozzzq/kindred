@@ -1,6 +1,12 @@
 import pytest
 
-from src.obsidian.herramientas import DEFINICIONES, IMPLEMENTACIONES, afirma_cambio_sin_hacerlo, ejecutar_herramienta
+from src.herramientas.catalogo import REGISTRO
+from src.herramientas.registro import ContextoEjecucion
+from src.obsidian.herramientas import HERRAMIENTAS_DE_ESCRITURA, afirma_cambio_sin_hacerlo
+
+
+def ejecutar_herramienta(nombre, argumentos):
+    return REGISTRO.ejecutar(nombre, argumentos, ContextoEjecucion(confirmador=lambda descripcion: True))
 
 
 @pytest.mark.parametrize(
@@ -13,6 +19,10 @@ from src.obsidian.herramientas import DEFINICIONES, IMPLEMENTACIONES, afirma_cam
         "Añadí la tarea.",
         "Mucho gusto, Josué, lo tendré presente.",  # caso real: lo dijo sin guardar nada
         "Perfecto, lo tendré en cuenta.",
+        "Listo, anotado.",
+        "Ya quedó guardado tu contacto.",
+        "Pendiente agregado: comprar leche.",
+        "Lo he añadido a tus pendientes.",
     ],
 )
 def test_detecta_cuando_dice_que_cambio_algo_sin_herramienta(texto):
@@ -24,14 +34,24 @@ def test_no_marca_si_si_uso_una_herramienta_de_escritura():
     assert afirma_cambio_sin_hacerlo("He agregado el pendiente.", ["agregar_pendiente"]) is False
 
 
-@pytest.mark.parametrize("texto", ["¿Quieres que lo agregue?", "Tienes tres pendientes.", "¿Cuál pendiente?"])
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "¿Quieres que lo agregue?",
+        "Tienes tres pendientes.",
+        "¿Cuál pendiente?",
+        # caso real: leía la fecha de la nota ("(agregado 2026-09-27 20:07)") y se tomaba como un cambio
+        "Tienes un pendiente agregado el 27 de septiembre: revisar la tarea de física.",
+        "Tu pendiente es marcar como completada la inscripción.",
+    ],
+)
 def test_no_marca_respuestas_que_no_afirman_cambios(texto):
     assert afirma_cambio_sin_hacerlo(texto, []) is False
 
 
-def test_cada_definicion_tiene_implementacion():
-    nombres = {d["function"]["name"] for d in DEFINICIONES}
-    assert nombres == set(IMPLEMENTACIONES)
+def test_las_herramientas_de_escritura_estan_registradas():
+    """La red de seguridad afirma_cambio_sin_hacerlo depende de estos nombres: si uno cambia, deja de funcionar."""
+    assert HERRAMIENTAS_DE_ESCRITURA <= REGISTRO.nombres()
 
 
 def test_leer_nota_devuelve_contenido_completo(tmp_path, monkeypatch):

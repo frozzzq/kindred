@@ -47,7 +47,7 @@ def main() -> None:
                 continue
 
             print(f"Tú: {texto}")
-            respuesta = procesar_comando(texto, confirmador=confirmar_por_voz, conversacion=conversacion)
+            respuesta = procesar_comando(texto, confirmador=confirmar_por_voz, conversacion=conversacion, canal="voz")
             print(f"{nombre_motor(respuesta.motor)}: {respuesta.texto}")
             hablar(respuesta.texto, motor=respuesta.motor)
             if respuesta.cerrar:

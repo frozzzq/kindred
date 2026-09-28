@@ -2,6 +2,7 @@ from src.router.intent_router import (
     MOTOR_ACCION,
     MOTOR_GEMINI,
     MOTOR_OLLAMA,
+    cambio_de_modo_seguro,
     decidir_motor,
     es_busqueda_web,
     es_cierre,
@@ -10,6 +11,7 @@ from src.router.intent_router import (
     extraer_texto_a_escribir,
     extraer_texto_click,
     nombre_motor,
+    parece_varias_instrucciones,
 )
 
 
@@ -110,3 +112,18 @@ def test_es_click_riesgoso_detecta_palabras_de_riesgo():
 def test_es_click_riesgoso_con_boton_neutro():
     assert es_click_riesgoso("Guardar") is False
     assert es_click_riesgoso("Aceptar") is False
+
+
+def test_cambio_de_modo_seguro():
+    assert cambio_de_modo_seguro("Jarvis, modo seguro") is True
+    assert cambio_de_modo_seguro("activa el modo seguro") is True
+    assert cambio_de_modo_seguro("sal del modo seguro") is False
+    assert cambio_de_modo_seguro("desactiva el modo seguro, por favor") is False
+    assert cambio_de_modo_seguro("abre spotify") is None
+
+
+def test_parece_varias_instrucciones():
+    assert parece_varias_instrucciones("spotify y pon mi playlist") is True
+    assert parece_varias_instrucciones("chrome, luego busca vuelos") is True
+    assert parece_varias_instrucciones("visual studio code") is False
+    assert parece_varias_instrucciones("paint") is False

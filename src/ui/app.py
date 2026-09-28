@@ -427,6 +427,7 @@ class JarvisApp:
                 confirmador=self.confirmador_voz,
                 motor_forzado=self._motor_forzado(),
                 conversacion=self.conversacion,
+                canal="voz",
             )
 
             motor_mostrado = self._motor_mostrado(respuesta.motor)
@@ -480,6 +481,7 @@ class JarvisApp:
                     confirmador=self.confirmador_ui,
                     motor_forzado=self._motor_forzado(),
                     conversacion=self.conversacion,
+                    canal="chat",
                 )
                 motor_mostrado = self._motor_mostrado(respuesta.motor)
                 paleta = PALETAS.get(motor_mostrado, self._paleta_actual())

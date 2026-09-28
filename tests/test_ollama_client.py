@@ -5,7 +5,9 @@ import json
 import pytest
 
 from src.engines.ollama_client import MAX_RONDAS_HERRAMIENTAS, conversar_ollama, preguntar_ollama
-from src.obsidian.herramientas import DEFINICIONES
+from src.herramientas.catalogo import REGISTRO
+
+DEFINICIONES = REGISTRO.esquemas_ollama()
 
 
 def _respuesta_http(datos):
