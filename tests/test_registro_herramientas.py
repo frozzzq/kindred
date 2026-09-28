@@ -171,6 +171,22 @@ def test_esquemas_para_ollama_y_gemini_filtran_por_grupo():
     ]
 
 
+def test_opcionales_no_quedan_en_required_del_esquema():
+    herramienta = Herramienta(
+        "agregar",
+        "Agrega.",
+        "boveda",
+        Espia(),
+        {"tarea": "La tarea.", "cuando": "Cuándo, opcional."},
+        opcionales=frozenset({"cuando"}),
+    )
+
+    esquema = herramienta.esquema_parametros()
+
+    assert set(esquema["properties"]) == {"tarea", "cuando"}
+    assert esquema["required"] == ["tarea"]
+
+
 # --- catálogo real ---
 
 
@@ -186,6 +202,20 @@ def test_catalogo_click_riesgoso_pide_confirmacion_y_neutro_no(mock_click, _mock
 
     assert preguntas == ["¿Confirmas que haga click en 'Eliminar'?"]
     assert mock_click.call_count == 2
+
+
+def test_catalogo_agregar_pendiente_tiene_cuando_como_opcional():
+    esquemas = {e["function"]["name"]: e["function"] for e in REGISTRO.esquemas_ollama({"boveda"})}
+
+    parametros = esquemas["agregar_pendiente"]["parameters"]
+    assert set(parametros["properties"]) == {"tarea", "cuando"}
+    assert parametros["required"] == ["tarea"]
+
+
+def test_catalogo_tiene_agregar_recurrente():
+    assert "agregar_recurrente" in REGISTRO.nombres()
+    esquemas = {e["function"]["name"]: e["function"] for e in REGISTRO.esquemas_ollama({"boveda"})}
+    assert set(esquemas["agregar_recurrente"]["parameters"]["required"]) == {"tarea", "frecuencia"}
 
 
 def test_seleccionar_grupos_agrega_pantalla_solo_si_hace_falta():

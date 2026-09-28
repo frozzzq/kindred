@@ -17,6 +17,7 @@ from src.herramientas.registro import Herramienta, Registro, Riesgo
 from src.obsidian.herramientas import herramienta_buscar, herramienta_leer_nota, herramienta_listar_notas
 from src.obsidian.vault_writer import (
     agregar_pendiente,
+    agregar_recurrente,
     completar_pendiente,
     guardar_contacto,
     normalizar,
@@ -103,7 +104,26 @@ HERRAMIENTAS = (
         "si el usuario no la dijo, pregúntale primero.",
         "boveda",
         agregar_pendiente,
-        {"tarea": "Descripción corta y clara de la tarea, ej. 'Comprar leche'."},
+        {
+            "tarea": "Descripción corta y clara de la tarea, ej. 'Comprar leche'.",
+            "cuando": "Fecha y/o hora en que debe hacerse o recordarse, en lenguaje natural, ej. "
+            "'mañana a las 6pm', 'el viernes'. Solo si el usuario la mencionó; si no, se omite.",
+        },
+        opcionales=frozenset({"cuando"}),
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "agregar_recurrente",
+        "Agrega una tarea que se repite (diario, o en ciertos días de la semana), ej. \"tomar la "
+        "medicina diario a las 9pm\" o \"sacar la basura los lunes y jueves a las 8am\". No la uses "
+        "para algo que pasa una sola vez: para eso es agregar_pendiente.",
+        "boveda",
+        agregar_recurrente,
+        {
+            "tarea": "Descripción corta de la tarea, ej. 'Tomar medicina'.",
+            "frecuencia": "Cuándo se repite, en lenguaje natural: 'diario a las 9pm', 'los lunes y "
+            "miércoles a las 8am'. Debe incluir una hora concreta.",
+        },
         riesgo=Riesgo.BAJO,
     ),
     Herramienta(

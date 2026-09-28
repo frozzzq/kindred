@@ -37,7 +37,8 @@ class Herramienta:
     descripcion: str
     grupo: str
     funcion: Callable[..., str]
-    parametros: dict[str, str] = field(default_factory=dict)  # nombre → descripción; todos requeridos
+    parametros: dict[str, str] = field(default_factory=dict)  # nombre → descripción
+    opcionales: frozenset[str] = field(default_factory=frozenset)  # cuáles de `parametros` no son obligatorios
     riesgo: Riesgo | Callable[[dict], Riesgo] = Riesgo.LECTURA  # puede depender de los argumentos
     pregunta: Callable[[dict], str] | None = None  # qué preguntar al confirmar; si no, una genérica
 
@@ -54,7 +55,7 @@ class Herramienta:
         return {
             "type": "object",
             "properties": {nombre: {"type": "string", "description": d} for nombre, d in self.parametros.items()},
-            "required": list(self.parametros),
+            "required": [nombre for nombre in self.parametros if nombre not in self.opcionales],
         }
 
 
