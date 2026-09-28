@@ -39,6 +39,39 @@ def test_agregar_pendiente(tmp_path, monkeypatch):
     assert "(agregado " in contenido
 
 
+def test_agregar_pendiente_no_duplica_el_mismo_pendiente(tmp_path, monkeypatch):
+    """Caso real: "comprar croquetas para el perro" se pudo agregar dos veces seguidas."""
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    agregar_pendiente("Comprar croquetas para el perro")
+
+    resultado = agregar_pendiente("Comprar croquetas para el perro")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert contenido.lower().count("croquetas") == 1
+    assert "Ya tenías ese pendiente" in resultado
+
+
+def test_agregar_pendiente_no_duplica_aunque_este_redactado_distinto(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    agregar_pendiente("Comprar croquetas para el perro")
+
+    agregar_pendiente("comprar las croquetas del perro")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert contenido.lower().count("croquetas") == 1
+
+
+def test_agregar_pendiente_distinto_si_agrega(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    agregar_pendiente("Comprar croquetas para el perro")
+
+    agregar_pendiente("Llamar al dentista")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert "croquetas" in contenido.lower()
+    assert "dentista" in contenido.lower()
+
+
 def _pendientes(tmp_path, *lineas):
     carpeta = tmp_path / "02-Tareas"
     carpeta.mkdir(exist_ok=True)

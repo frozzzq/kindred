@@ -70,9 +70,15 @@ def escribir_nota(ruta_relativa: str, contenido: str, sobrescribir: bool = False
 
 
 def agregar_pendiente(tarea: str) -> str:
-    """Agrega una tarea a Pendientes.md. La fecha es de cuándo se agregó, no un vencimiento."""
-    escribir_nota(RUTA_PENDIENTES, f"{MARCA_PENDIENTE}{tarea.strip()} (agregado {_ahora()})")
-    return f"Pendiente agregado: {tarea.strip()}"
+    """Agrega una tarea a Pendientes.md, si no estaba ya (aunque esté redactada distinto).
+
+    La fecha es de cuándo se agregó, no un vencimiento.
+    """
+    tarea = tarea.strip()
+    if ya_esta_anotado(tarea, _leer(RUTA_PENDIENTES)):
+        return f"Ya tenías ese pendiente: {tarea}"
+    escribir_nota(RUTA_PENDIENTES, f"{MARCA_PENDIENTE}{tarea} (agregado {_ahora()})")
+    return f"Pendiente agregado: {tarea}"
 
 
 def completar_pendiente(descripcion: str) -> str:
