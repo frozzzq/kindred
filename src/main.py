@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 from src.actions.aplicaciones import reconoce_aplicacion
+from src.actions.archivos import es_carpeta_conocida
 from src.actions.busqueda_web import construir_contexto_web
 from src.actions.confirmacion import Confirmador, confirmar_por_texto
 from src.actions.navegador import parece_url
@@ -21,7 +22,12 @@ from src.herramientas.catalogo import REGISTRO, seleccionar_grupos
 from src.herramientas.registro import ContextoEjecucion
 from src.obsidian.contexto import evaluar_guardado
 from src.obsidian.estructura import asegurar_estructura_boveda
-from src.obsidian.herramientas import MENSAJE_VERIFICACION, afirma_cambio_sin_hacerlo
+from src.obsidian.herramientas import (
+    MENSAJE_VERIFICACION,
+    MENSAJE_VERIFICACION_PENDIENTE,
+    afirma_cambio_sin_hacerlo,
+    usuario_reporta_tarea_hecha,
+)
 from src.obsidian.vault_writer import registrar_interaccion
 from src.router.intent_router import (
     MOTOR_ACCION,
@@ -122,11 +128,19 @@ def procesar_comando(
             return accion("abrir_carpeta", {"nombre": objetivo[len(PREFIJO_CARPETA):]})
         if parece_url(objetivo):
             return accion("abrir_url", {"url": objetivo})
+        # Antes de intentar como app: "mis documentos" o "el escritorio" se confundían con apps de
+        # nombre parecido ("Documentación de Referencia", "Conexión a Escritorio remoto").
+        if es_carpeta_conocida(objetivo):
+            return accion("abrir_carpeta", {"nombre": objetivo})
         if reconoce_aplicacion(objetivo):
             return accion("abrir_aplicacion", {"nombre": objetivo})
 
+    # Guardado igual que arriba: "escribe hola mundo" es dictado literal, pero "escribe un correo
+    # para mi jefe pidiendo permiso" es una instrucción compuesta y no algo para teclear tal cual
+    # en la ventana activa; eso lo resuelve el agente (que puede seguir usando escribir_texto, pero
+    # decidiendo primero qué escribir).
     texto_a_escribir = extraer_texto_a_escribir(texto)
-    if texto_a_escribir is not None:
+    if texto_a_escribir is not None and not parece_varias_instrucciones(texto_a_escribir):
         return accion("escribir_texto", {"texto": texto_a_escribir})
 
     texto_click = extraer_texto_click(texto)
@@ -185,11 +199,18 @@ def procesar_comando(
     herramientas = REGISTRO.esquemas_ollama(seleccionar_grupos(texto, modelo_local=True))
     ejecutar = REGISTRO.ejecutor(contexto)
     respuesta = conversar_ollama(mensajes, herramientas=herramientas, ejecutar=ejecutar)
-    if respuesta.exito and afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):
-        # Dijo que cambió algo sin haberlo hecho: se le da una oportunidad de hacerlo de verdad.
+    mensaje_verificacion = None
+    if respuesta.exito:
+        if afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):
+            mensaje_verificacion = MENSAJE_VERIFICACION
+        elif usuario_reporta_tarea_hecha(texto) and "completar_pendiente" not in (respuesta.herramientas_usadas or []):
+            # El usuario contó que ya hizo algo, pero el modelo solo charló sin revisar si era un
+            # pendiente (no afirmó ningún cambio, así que afirma_cambio_sin_hacerlo no lo detecta).
+            mensaje_verificacion = MENSAJE_VERIFICACION_PENDIENTE
+    if mensaje_verificacion:
         mensajes += [
             {"role": "assistant", "content": respuesta.texto},
-            {"role": "user", "content": MENSAJE_VERIFICACION},
+            {"role": "user", "content": mensaje_verificacion},
         ]
         respuesta = conversar_ollama(mensajes, herramientas=herramientas, ejecutar=ejecutar)
         if respuesta.exito and afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):

@@ -357,3 +357,83 @@ def test_abrir_algo_que_no_es_una_app_lo_resuelve_el_agente(mock_ollama, mock_ab
 
     mock_abrir.assert_not_called()
     assert resultado.texto == "Tienes dos pendientes."
+
+
+@patch("src.herramientas.catalogo.abrir_aplicacion")
+@patch("src.herramientas.catalogo.abrir_carpeta")
+@patch("src.main.reconoce_aplicacion")
+def test_carpetas_conocidas_no_se_confunden_con_apps(mock_reconoce, mock_carpeta, mock_abrir):
+    """Caso real: "abre mis documentos" abría "Documentación de Referencia" en vez de la carpeta."""
+    mock_carpeta.return_value = ResultadoAccion(exito=True, mensaje="Abriendo la carpeta Documents...")
+
+    resultado = procesar_comando("abre mis documentos", confirmador=_no_debe_confirmar)
+
+    mock_carpeta.assert_called_once_with("mis documentos")
+    mock_abrir.assert_not_called()
+    mock_reconoce.assert_not_called()  # ni se llegó a preguntar si "mis documentos" es una app
+    assert resultado.texto == "Abriendo la carpeta Documents..."
+
+
+@patch("src.herramientas.catalogo.abrir_aplicacion")
+@patch("src.herramientas.catalogo.abrir_carpeta")
+def test_el_escritorio_no_se_confunde_con_conexion_a_escritorio_remoto(mock_carpeta, mock_abrir):
+    mock_carpeta.return_value = ResultadoAccion(exito=True, mensaje="Abriendo la carpeta Desktop...")
+
+    procesar_comando("abre el escritorio", confirmador=_no_debe_confirmar)
+
+    mock_carpeta.assert_called_once_with("escritorio")
+    mock_abrir.assert_not_called()
+
+
+@patch("src.herramientas.catalogo.escribir_texto")
+@patch("src.main.conversar_ollama")
+def test_escribir_una_instruccion_compuesta_la_resuelve_el_agente(mock_ollama, mock_escribir):
+    """Caso real: "describe"/"escribe un correo para..." tecleaban la frase literal en la ventana
+    activa en vez de dejar que el agente decidiera qué escribir (o explicara que no puede aún)."""
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="Listo.")
+
+    procesar_comando("escribe un correo para mi jefe pidiendo permiso")
+
+    mock_escribir.assert_not_called()
+    mock_ollama.assert_called_once()
+
+
+@patch("src.main.conversar_ollama")
+def test_describe_no_dispara_el_atajo_de_escribir(mock_ollama):
+    """Caso real: "describe" contiene "escribe" y tecleaba la frase completa en la ventana activa."""
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="Es un asistente personal.")
+
+    resultado = procesar_comando("describe mi proyecto de física")
+
+    assert resultado.motor == MOTOR_OLLAMA
+    assert resultado.texto == "Es un asistente personal."
+
+
+@patch("src.main.conversar_ollama")
+def test_reporta_tarea_hecha_sin_afirmar_cambio_dispara_verificacion(mock_ollama):
+    """Caso real: a "ya llamé al dentista" respondía "qué bien, ¿cómo te fue?" sin revisar los
+    pendientes ni llamar completar_pendiente; como nunca afirmaba haber hecho un cambio,
+    afirma_cambio_sin_hacerlo no lo detectaba."""
+    mock_ollama.side_effect = [
+        RespuestaMotor(exito=True, texto="Qué bien, ¿cómo te fue?"),
+        RespuestaMotor(exito=True, texto="Perfecto, lo marqué como completado.", herramientas_usadas=["completar_pendiente"]),
+    ]
+
+    resultado = procesar_comando("ya llamé al dentista")
+
+    assert mock_ollama.call_count == 2
+    ultimo_mensaje = mock_ollama.call_args.args[0][-1]
+    assert ultimo_mensaje["role"] == "user"
+    assert "ya hizo algo" in ultimo_mensaje["content"]
+    assert resultado.texto == "Perfecto, lo marqué como completado."
+
+
+@patch("src.main.conversar_ollama")
+def test_reporta_tarea_hecha_no_dispara_verificacion_si_ya_completo(mock_ollama):
+    mock_ollama.return_value = RespuestaMotor(
+        exito=True, texto="Listo, lo marqué.", herramientas_usadas=["completar_pendiente"]
+    )
+
+    procesar_comando("ya llamé al dentista")
+
+    mock_ollama.assert_called_once()
