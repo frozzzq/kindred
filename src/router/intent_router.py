@@ -34,7 +34,7 @@ PALABRAS_CLAVE_COMPLEJO = PALABRAS_CLAVE_BUSQUEDA_WEB + (
     "analiza", "analizar",
 )
 
-PREFIJOS_ABRIR = ("abre ", "abrir ")
+PREFIJOS_ABRIR = ("abre ", "abrir ", "ábreme ", "abreme ")
 ARTICULOS = ("el ", "la ", "los ", "las ")
 SIGNOS_A_QUITAR = " .,;:!¡?¿'\""
 
@@ -47,6 +47,8 @@ FRASES_CIERRE = (
 
 PREFIJOS_CLICK = (
     "haz click en ", "haz clic en ",
+    "dale click a ", "dale clic a ",
+    "dame click en ", "dame clic en ",
     "click en ", "clic en ",
     "presiona el botón ", "presiona el boton ",
     "toca el botón ", "toca el boton ",
@@ -66,14 +68,37 @@ PALABRAS_CLAVE_RIESGO_CLICK = (
 )
 
 
+def _contiene_alguna(texto_normalizado: str, palabras: tuple[str, ...]) -> bool:
+    """Busca cada palabra como palabra completa, nunca como parte de otra.
+
+    Antes usaba "in" a secas: "enviar" contenía "envia" y disparaba Gemini
+    sin que el usuario pidiera enviar nada (visto en pruebas reales).
+    """
+    return any(re.search(r"\b" + re.escape(palabra) + r"\b", texto_normalizado) for palabra in palabras)
+
+
+def _primer_prefijo(texto_normalizado: str, prefijos: tuple[str, ...]) -> re.Match | None:
+    """El primer prefijo de la lista (en orden de prioridad) que aparece como palabra completa.
+
+    Antes usaba str.find, que encontraba el prefijo aunque fuera parte de
+    otra palabra: "describe" contiene "escribe" y activaba el atajo de
+    escritura (visto en pruebas reales). \\b exige que justo antes empiece
+    una palabra nueva.
+    """
+    for prefijo in prefijos:
+        coincidencia = re.search(r"\b" + re.escape(prefijo), texto_normalizado)
+        if coincidencia:
+            return coincidencia
+    return None
+
+
 def decidir_motor(texto: str) -> str:
     """Decide qué motor debe atender el texto, según palabras clave simples.
 
     Comandos simples (pendientes, notas, contexto ya guardado) → Ollama.
     Comandos complejos (buscar en internet, mensajes, resumir/analizar) → Gemini.
     """
-    texto_normalizado = texto.lower()
-    if any(palabra in texto_normalizado for palabra in PALABRAS_CLAVE_COMPLEJO):
+    if _contiene_alguna(texto.lower(), PALABRAS_CLAVE_COMPLEJO):
         return MOTOR_GEMINI
     return MOTOR_OLLAMA
 
@@ -85,8 +110,7 @@ def nombre_motor(motor: str) -> str:
 
 def es_busqueda_web(texto: str) -> bool:
     """Indica si el comando pide buscar algo en internet (activa grounding en Gemini)."""
-    texto_normalizado = texto.lower()
-    return any(palabra in texto_normalizado for palabra in PALABRAS_CLAVE_BUSQUEDA_WEB)
+    return _contiene_alguna(texto.lower(), PALABRAS_CLAVE_BUSQUEDA_WEB)
 
 
 def es_cierre(texto: str) -> bool:
@@ -120,13 +144,11 @@ def cambio_de_modo_seguro(texto: str) -> bool | None:
 def extraer_texto_click(texto: str) -> str | None:
     """Si el texto pide hacer click en algo, devuelve el texto del control a buscar (o None)."""
     texto_normalizado = texto.strip(SIGNOS_A_QUITAR).lower()
-    for prefijo in PREFIJOS_CLICK:
-        indice = texto_normalizado.find(prefijo)
-        if indice == -1:
-            continue
-        resto = texto_normalizado[indice + len(prefijo):].strip(SIGNOS_A_QUITAR)
-        return resto or None
-    return None
+    coincidencia = _primer_prefijo(texto_normalizado, PREFIJOS_CLICK)
+    if coincidencia is None:
+        return None
+    resto = texto_normalizado[coincidencia.end():].strip(SIGNOS_A_QUITAR)
+    return resto or None
 
 
 def extraer_texto_a_escribir(texto: str) -> str | None:
@@ -137,19 +159,18 @@ def extraer_texto_a_escribir(texto: str) -> str | None:
     """
     texto_normalizado = texto.strip(SIGNOS_A_QUITAR)
     en_minusculas = texto_normalizado.lower()
-    for prefijo in PREFIJOS_ESCRIBIR:
-        indice = en_minusculas.find(prefijo)
-        if indice == -1:
-            continue
-        resto = texto_normalizado[indice + len(prefijo):].strip(SIGNOS_A_QUITAR)
-        return resto or None
-    return None
+    coincidencia = _primer_prefijo(en_minusculas, PREFIJOS_ESCRIBIR)
+    if coincidencia is None:
+        return None
+    # .lower() no cambia la longitud, así que el índice encontrado en minúsculas
+    # sirve igual para recortar el texto original (con sus mayúsculas intactas).
+    resto = texto_normalizado[coincidencia.end():].strip(SIGNOS_A_QUITAR)
+    return resto or None
 
 
 def es_click_riesgoso(texto_boton: str) -> bool:
     """Indica si el texto del control sugiere una acción irreversible (eliminar, enviar, comprar...)."""
-    texto_normalizado = texto_boton.lower()
-    return any(palabra in texto_normalizado for palabra in PALABRAS_CLAVE_RIESGO_CLICK)
+    return _contiene_alguna(texto_boton.lower(), PALABRAS_CLAVE_RIESGO_CLICK)
 
 
 def extraer_nombre_app(texto: str) -> str | None:
@@ -162,13 +183,11 @@ def extraer_nombre_app(texto: str) -> str | None:
     puntos o signos de exclamación al transcribir).
     """
     texto_normalizado = texto.strip(SIGNOS_A_QUITAR).lower()
-    for prefijo in PREFIJOS_ABRIR:
-        indice = texto_normalizado.find(prefijo)
-        if indice == -1:
-            continue
-        resto = texto_normalizado[indice + len(prefijo):].strip(SIGNOS_A_QUITAR)
-        for articulo in ARTICULOS:
-            if resto.startswith(articulo):
-                resto = resto[len(articulo):].strip(SIGNOS_A_QUITAR)
-        return resto or None
-    return None
+    coincidencia = _primer_prefijo(texto_normalizado, PREFIJOS_ABRIR)
+    if coincidencia is None:
+        return None
+    resto = texto_normalizado[coincidencia.end():].strip(SIGNOS_A_QUITAR)
+    for articulo in ARTICULOS:
+        if resto.startswith(articulo):
+            resto = resto[len(articulo):].strip(SIGNOS_A_QUITAR)
+    return resto or None

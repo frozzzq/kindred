@@ -49,6 +49,16 @@ def test_extraer_nombre_app_con_saludo_antes():
     assert extraer_nombre_app("Oye Clover, podrías abrir spotify") == "spotify"
 
 
+def test_extraer_nombre_app_con_forma_reflexiva():
+    assert extraer_nombre_app("ábreme el bloc de notas") == "bloc de notas"
+    assert extraer_nombre_app("abreme discord") == "discord"
+
+
+def test_extraer_nombre_app_no_confunde_palabras_que_contienen_abre():
+    """Caso real: ninguna palabra que solo contenga "abre" debe disparar el atajo."""
+    assert extraer_nombre_app("recabré todos los datos del proyecto") is None
+
+
 def test_es_busqueda_web_detecta_palabra_clave():
     assert es_busqueda_web("busca el clima de hoy") is True
 
@@ -94,6 +104,11 @@ def test_extraer_texto_click_sin_frase_devuelve_none():
     assert extraer_texto_click("recuérdame comprar leche") is None
 
 
+def test_extraer_texto_click_con_dale_click_a():
+    assert extraer_texto_click("dale click a enviar") == "enviar"
+    assert extraer_texto_click("dale clic a guardar") == "guardar"
+
+
 def test_extraer_texto_a_escribir_conserva_mayusculas():
     assert extraer_texto_a_escribir("escribe Hola Mundo") == "Hola Mundo"
     assert extraer_texto_a_escribir("teclea mi correo es test@test.com") == "mi correo es test@test.com"
@@ -101,6 +116,12 @@ def test_extraer_texto_a_escribir_conserva_mayusculas():
 
 def test_extraer_texto_a_escribir_sin_frase_devuelve_none():
     assert extraer_texto_a_escribir("recuérdame comprar leche") is None
+
+
+def test_extraer_texto_a_escribir_no_confunde_describe_con_escribe():
+    """Caso real: "describe" contiene "escribe" y tecleaba la frase completa en la ventana activa."""
+    assert extraer_texto_a_escribir("describe mi proyecto de física") is None
+    assert extraer_texto_a_escribir("inscribe a mi hermana al curso") is None
 
 
 def test_es_click_riesgoso_detecta_palabras_de_riesgo():
@@ -112,6 +133,11 @@ def test_es_click_riesgoso_detecta_palabras_de_riesgo():
 def test_es_click_riesgoso_con_boton_neutro():
     assert es_click_riesgoso("Guardar") is False
     assert es_click_riesgoso("Aceptar") is False
+
+
+def test_decidir_motor_no_confunde_enviar_con_envia():
+    """Caso real: "enviar" contiene "envia" y mandaba comandos simples a Gemini sin razón."""
+    assert decidir_motor("dale click a enviar") == MOTOR_OLLAMA
 
 
 def test_cambio_de_modo_seguro():
