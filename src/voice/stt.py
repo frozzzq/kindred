@@ -129,6 +129,8 @@ def grabar_hasta_silencio() -> np.ndarray:
 
 
 PROBABILIDAD_MAXIMA_SIN_VOZ = 0.6
+# Sesga a Whisper hacia los nombres de los agentes (antes los transcribía como "crimen", "grimson"...).
+PALABRAS_CLAVE_STT = "Crimson Clover"
 
 
 def transcribir(audio: np.ndarray, filtrar_ruido: bool = False) -> str:
@@ -141,7 +143,7 @@ def transcribir(audio: np.ndarray, filtrar_ruido: bool = False) -> str:
     if audio.size == 0:
         return ""
     modelo = _obtener_modelo()
-    segmentos, _info = modelo.transcribe(audio, language="es", vad_filter=filtrar_ruido)
+    segmentos, _info = modelo.transcribe(audio, language="es", vad_filter=filtrar_ruido, hotwords=PALABRAS_CLAVE_STT)
     if filtrar_ruido:
         segmentos = [s for s in segmentos if s.no_speech_prob < PROBABILIDAD_MAXIMA_SIN_VOZ]
     return " ".join(segmento.text.strip() for segmento in segmentos).strip()
