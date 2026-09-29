@@ -16,8 +16,9 @@ import time
 from dataclasses import dataclass
 
 import win32clipboard
-import win32gui
 from pywinauto import Desktop
+
+from src.actions import foco
 
 SIGNOS_A_QUITAR = " .,;:!¡?¿'\""
 
@@ -29,8 +30,12 @@ class ResultadoAccion:
 
 
 def _ventana_activa():
-    """La ventana con la que el usuario está interactuando en este instante, o None si no hay ninguna."""
-    hwnd = win32gui.GetForegroundWindow()
+    """La ventana con la que el usuario está interactuando en este instante, o None si no hay ninguna.
+
+    Si esa ventana resulta ser la propia UI/consola de Jarvis (porque le acabas de hablar o
+    escribir ahí), foco.ventana_objetivo() le devuelve el foco a la última ventana externa conocida.
+    """
+    hwnd = foco.ventana_objetivo()
     if not hwnd:
         return None
     return Desktop(backend="uia").window(handle=hwnd)

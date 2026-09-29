@@ -24,6 +24,7 @@ import time
 import flet as ft
 import sounddevice as sd
 
+from src.actions import foco
 from src.actions.confirmacion import es_afirmativo
 from src.agente.conversacion import Conversacion
 from src.main import procesar_comando
@@ -151,6 +152,10 @@ class JarvisApp:
         )
 
     def montar(self) -> None:
+        # Para que "escribe X"/"haz click en Y" apunten a la ventana de antes (ej. el Bloc de
+        # notas) y no a esta misma UI, que le acaba de robar el foco al hablarle/escribirle.
+        foco.iniciar_rastreo()
+
         page = self.page
         page.title = "Crimson y Clover"
         page.window.width = 480

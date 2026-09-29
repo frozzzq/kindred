@@ -8,7 +8,7 @@ from src.actions.system_control import escribir_texto, hacer_click
 
 
 @patch("src.actions.system_control.Desktop")
-@patch("src.actions.system_control.win32gui.GetForegroundWindow", return_value=123)
+@patch("src.actions.system_control.foco.ventana_objetivo", return_value=123)
 def test_hacer_click_encuentra_control_por_texto_exacto(_mock_hwnd, mock_desktop_cls):
     boton, otro = MagicMock(), MagicMock()
     boton.window_text.return_value = "Guardar"
@@ -23,7 +23,7 @@ def test_hacer_click_encuentra_control_por_texto_exacto(_mock_hwnd, mock_desktop
 
 
 @patch("src.actions.system_control.Desktop")
-@patch("src.actions.system_control.win32gui.GetForegroundWindow", return_value=123)
+@patch("src.actions.system_control.foco.ventana_objetivo", return_value=123)
 def test_hacer_click_usa_coincidencia_parcial_si_no_hay_exacta(_mock_hwnd, mock_desktop_cls):
     boton = MagicMock()
     boton.window_text.return_value = "Guardar cambios"
@@ -36,7 +36,7 @@ def test_hacer_click_usa_coincidencia_parcial_si_no_hay_exacta(_mock_hwnd, mock_
 
 
 @patch("src.actions.system_control.Desktop")
-@patch("src.actions.system_control.win32gui.GetForegroundWindow", return_value=123)
+@patch("src.actions.system_control.foco.ventana_objetivo", return_value=123)
 def test_hacer_click_sin_coincidencia_no_crashea(_mock_hwnd, mock_desktop_cls):
     mock_desktop_cls.return_value.window.return_value.descendants.return_value = []
 
@@ -46,7 +46,7 @@ def test_hacer_click_sin_coincidencia_no_crashea(_mock_hwnd, mock_desktop_cls):
     assert "algo que no existe" in resultado.mensaje
 
 
-@patch("src.actions.system_control.win32gui.GetForegroundWindow", return_value=0)
+@patch("src.actions.system_control.foco.ventana_objetivo", return_value=None)
 def test_hacer_click_sin_ventana_activa_no_crashea(_mock_hwnd):
     resultado = hacer_click("Guardar")
 
@@ -54,7 +54,7 @@ def test_hacer_click_sin_ventana_activa_no_crashea(_mock_hwnd):
 
 
 @patch("src.actions.system_control.Desktop")
-@patch("src.actions.system_control.win32gui.GetForegroundWindow", return_value=123)
+@patch("src.actions.system_control.foco.ventana_objetivo", return_value=123)
 def test_hacer_click_ventana_inaccesible_no_crashea(_mock_hwnd, mock_desktop_cls):
     mock_desktop_cls.return_value.window.return_value.descendants.side_effect = RuntimeError("boom")
 
@@ -64,7 +64,7 @@ def test_hacer_click_ventana_inaccesible_no_crashea(_mock_hwnd, mock_desktop_cls
 
 
 @patch("src.actions.system_control.Desktop")
-@patch("src.actions.system_control.win32gui.GetForegroundWindow", return_value=123)
+@patch("src.actions.system_control.foco.ventana_objetivo", return_value=123)
 def test_hacer_click_error_al_ejecutar_el_click_no_crashea(_mock_hwnd, mock_desktop_cls):
     boton = MagicMock()
     boton.window_text.return_value = "Guardar"
