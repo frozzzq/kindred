@@ -134,11 +134,10 @@ def test_ciclo_propaga_sus_errores(_mp, _mr):
         ciclo(LUNES_MEDIODIA)
 
 
-@patch("src.nucleo.servicio.load_dotenv")  # no debe pisar OBSIDIAN_VAULT_PATH/LOCALAPPDATA del test con el .env real
-@patch("src.nucleo.servicio.asegurar_estructura_boveda")
+@patch("src.arranque.preparar")  # no debe pisar OBSIDIAN_VAULT_PATH/LOCALAPPDATA del test con el .env real
 @patch("src.nucleo.servicio._reloj.sleep")
 @patch("src.nucleo.servicio.ciclo")
-def test_main_sigue_corriendo_aunque_un_ciclo_falle(mock_ciclo, mock_sleep, _mock_estructura, _mock_dotenv):
+def test_main_sigue_corriendo_aunque_un_ciclo_falle(mock_ciclo, mock_sleep, _mock_preparar):
     """Caso real que debe evitarse: Ollama caído un momento no debe tumbar el proceso de fondo."""
     mock_ciclo.side_effect = [RuntimeError("Ollama no responde"), None]
     mock_sleep.side_effect = [None, KeyboardInterrupt]

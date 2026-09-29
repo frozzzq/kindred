@@ -31,6 +31,12 @@ def ejecutar_herramienta(nombre, argumentos):
         "Ya quedó guardado tu contacto.",
         "Pendiente agregado: comprar leche.",
         "Lo he añadido a tus pendientes.",
+        "Creé la nota.",
+        "Ya quedó creada la nota nueva.",
+        "Conecté las dos notas.",
+        "Ya está conectada la nota.",
+        "Hecho. Ya vinculé la nota de Jarvis con la de Ollama.",  # caso real de Clover
+        "Listo, las enlacé.",
     ],
 )
 def test_detecta_cuando_dice_que_cambio_algo_sin_herramienta(texto):
@@ -119,6 +125,9 @@ def test_afirma_accion_sin_hacerla_no_se_dispara_de_mas(texto):
         ("No logré hacer ese cambio en tu bóveda. ¿Me lo repites, por favor?", "recordar_sobre_usuario"),
         ("No se guardó nada.", "agregar_recurrente"),
         ("No pude hacerlo.", "abrir_aplicacion"),
+        ("No creé la nota.", "crear_nota"),
+        ("No conecté las notas.", "conectar_notas"),
+        ("No eliminé la nota.", "eliminar_nota"),
     ],
 )
 def test_detecta_cuando_niega_una_accion_que_si_hizo(texto, herramienta):
@@ -181,7 +190,10 @@ def test_leer_nota_fuera_de_la_boveda_devuelve_error(tmp_path, monkeypatch):
     boveda.mkdir()
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(boveda))
 
-    assert ejecutar_herramienta("leer_nota", {"ruta": "../../Windows/win.ini"}).startswith("Error")
+    resultado = ejecutar_herramienta("leer_nota", {"ruta": "../../Windows/win.ini"})
+
+    assert "no existe" in resultado or resultado.startswith("Error")
+    assert "CONTENIDO GUARDADO" not in resultado
 
 
 def test_leer_nota_marca_el_contenido_como_dato_no_como_instruccion(tmp_path, monkeypatch):
@@ -204,18 +216,24 @@ def test_buscar_en_boveda_marca_el_contenido_como_dato(tmp_path, monkeypatch):
     (tmp_path / "02-Tareas").mkdir()
     (tmp_path / "02-Tareas" / "Pendientes.md").write_text("- [ ] Comprar leche", encoding="utf-8")
 
-    resultado = ejecutar_herramienta("buscar_en_boveda", {"consulta": "leche"})
+    resultado = ejecutar_herramienta("buscar_en_boveda", {"consulta": "comprar leche"})
 
     assert "CONTENIDO GUARDADO POR EL USUARIO" in resultado
     assert "leche" in resultado
 
 
-def test_listar_notas(tmp_path, monkeypatch):
+def test_listar_notas_agrupa_por_carpeta_y_oculta_el_sistema(tmp_path, monkeypatch):
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-    (tmp_path / "01-Perfil").mkdir()
-    (tmp_path / "01-Perfil" / "Yo.md").write_text("", encoding="utf-8")
+    for ruta in ("01-Perfil/Yo.md", "01-Perfil/Contactos.md", "00-Sistema/HEARTBEAT.md", "04-Conocimiento/Node.js.md"):
+        (tmp_path / ruta).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / ruta).write_text("", encoding="utf-8")
 
-    assert ejecutar_herramienta("listar_notas", {}) == "01-Perfil/Yo.md"
+    resultado = ejecutar_herramienta("listar_notas", {})
+
+    assert "01-Perfil: Contactos, Yo" in resultado
+    assert "04-Conocimiento: Node.js" in resultado
+    assert "HEARTBEAT" not in resultado
+    assert ejecutar_herramienta("listar_notas", {"carpeta": "04-Conocimiento"}) == "04-Conocimiento: Node.js"
 
 
 def test_agregar_pendiente_por_herramienta(tmp_path, monkeypatch):
@@ -224,6 +242,28 @@ def test_agregar_pendiente_por_herramienta(tmp_path, monkeypatch):
     ejecutar_herramienta("agregar_pendiente", {"tarea": "Comprar leche"})
 
     assert "Comprar leche" in (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+
+
+def test_crear_nota_por_herramienta(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+
+    resultado = ejecutar_herramienta(
+        "crear_nota", {"ruta": "04-Conocimiento/Idea.md", "contenido": "Una idea nueva."}
+    )
+
+    assert "creada" in resultado.lower()
+    assert (tmp_path / "04-Conocimiento" / "Idea.md").read_text(encoding="utf-8").rstrip().endswith("Una idea nueva.")
+
+
+def test_conectar_notas_por_herramienta(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    (tmp_path / "a.md").write_text("nota a", encoding="utf-8")
+    (tmp_path / "b.md").write_text("nota b", encoding="utf-8")
+
+    resultado = ejecutar_herramienta("conectar_notas", {"origen": "a.md", "destino": "b.md"})
+
+    assert "Conecté" in resultado
+    assert "[[b]]" in (tmp_path / "a.md").read_text(encoding="utf-8")
 
 
 def test_herramienta_desconocida():

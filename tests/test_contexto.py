@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import patch
 
 from src.obsidian.contexto import evaluar_guardado
@@ -9,7 +10,7 @@ def test_evaluar_guardado_registra_la_interaccion_en_el_log(mock_reflexion, tmp_
 
     evaluar_guardado("hola", "hola, ¿en qué te ayudo?", "ollama")
 
-    log = (tmp_path / "00-Sistema" / "Logs-Interacciones.md").read_text(encoding="utf-8")
+    log = (tmp_path / "00-Sistema" / "Logs" / f"{datetime.now():%Y-%m}.md").read_text(encoding="utf-8")
     assert "hola, ¿en qué te ayudo?" in log
     mock_reflexion.assert_called_once()
 

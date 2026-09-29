@@ -31,7 +31,9 @@ def test_comando_simple_responde_crimson_con_personalidad_y_herramientas(mock_ol
     assert resultado == Respuesta(texto="Tienes tres pendientes.", motor=MOTOR_OLLAMA)
     mensajes = mock_ollama.call_args.args[0]
     assert mensajes[0] == {"role": "system", "content": "sistema-ollama"}
-    assert mensajes[-1] == {"role": "user", "content": "¿qué pendientes tengo?"}
+    assert mensajes[-1]["role"] == "user"
+    assert mensajes[-1]["content"].startswith("[Contexto automático")
+    assert mensajes[-1]["content"].endswith("Mensaje del usuario: ¿qué pendientes tengo?")
     nombres = {h["function"]["name"] for h in mock_ollama.call_args.kwargs["herramientas"]}
     assert "leer_nota" in nombres
     assert "abrir_aplicacion" not in nombres  # con ellas qwen3:8b dejaba de leer la bóveda
@@ -372,13 +374,18 @@ def test_clover_usa_herramientas_en_comandos_normales(mock_conversar_gemini, moc
 @patch("src.main.conversar_gemini")
 def test_si_clover_falla_despues_de_actuar_no_se_repite_con_ollama(mock_conversar_gemini, mock_ollama):
     mock_conversar_gemini.return_value = RespuestaMotor(
-        exito=False, error="se cortó la conexión", herramientas_usadas=["abrir_aplicacion"]
+        exito=False,
+        error="Gemini falló: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota'}}",
+        herramientas_usadas=["abrir_aplicacion"],
+        resultados_herramientas=["Abriendo Spotify..."],
     )
 
     resultado = procesar_comando("pon mi playlist favorita en spotify", motor_forzado=MOTOR_GEMINI)
 
     mock_ollama.assert_not_called()
-    assert "abrir_aplicacion" in resultado.texto
+    assert resultado.texto.startswith("Abriendo Spotify...")
+    assert "cuota de Gemini" in resultado.texto
+    assert "RESOURCE_EXHAUSTED" not in resultado.texto  # nunca se lee el error crudo en voz alta
 
 
 @patch("src.main.conversar_ollama")
@@ -493,3 +500,156 @@ def test_reporta_tarea_hecha_no_dispara_verificacion_si_ya_completo(mock_ollama)
     procesar_comando("ya llamé al dentista")
 
     mock_ollama.assert_called_once()
+
+
+# --- respuesta en vivo (streaming) ---
+
+
+def _ollama_que_transmite(fragmentos, respuesta):
+    """conversar_ollama falso que va entregando el texto en pedazos, como el real en streaming."""
+
+    def conversar(mensajes, herramientas=None, ejecutar=None, al_texto=None, **_otros):
+        if al_texto is not None:
+            for fragmento in fragmentos:
+                al_texto(fragmento, respuesta.herramientas_usadas)
+        return respuesta
+
+    return conversar
+
+
+@patch("src.main.conversar_ollama")
+def test_la_respuesta_se_entrega_oracion_por_oracion_mientras_se_genera(mock_ollama):
+    texto = "¡Hola, Josué! Tienes dos pendientes para hoy y uno vencido desde el viernes."
+    mock_ollama.side_effect = _ollama_que_transmite(["¡Hola, ", "Josué! Tienes dos pendientes ", "para hoy y uno vencido desde el viernes."], RespuestaMotor(exito=True, texto=texto))
+    dichas = []
+
+    resultado = procesar_comando("hola", al_oracion=dichas.append)
+
+    assert dichas == ["¡Hola, Josué!", "Tienes dos pendientes para hoy y uno vencido desde el viernes."]
+    assert resultado.texto == texto
+    assert resultado.por_decir == ""  # ya se dijo todo en vivo
+
+
+@patch("src.main.conversar_ollama")
+def test_no_dice_en_vivo_un_cambio_que_no_hizo(mock_ollama):
+    """Si afirma un cambio sin haber llamado la herramienta, esa oración no se dice: se corrige primero."""
+    falsa = RespuestaMotor(exito=True, texto="Claro. Ya lo anoté en tus pendientes.")
+    corregida = RespuestaMotor(exito=True, texto="Listo, pendiente agregado.", herramientas_usadas=["agregar_pendiente"])
+    llamadas = iter([_ollama_que_transmite(["Claro. ", "Ya lo anoté en tus pendientes."], falsa), lambda *a, **k: corregida])
+    mock_ollama.side_effect = lambda *a, **k: next(llamadas)(*a, **k)
+    dichas = []
+
+    resultado = procesar_comando("agrega comprar leche", al_oracion=dichas.append)
+
+    assert dichas[-1] == "Claro."  # antes va el acuse inmediato ("Va, dame un segundito.")
+    assert "anoté" not in " ".join(dichas)
+    assert resultado.texto == "Listo, pendiente agregado."
+    assert resultado.por_decir == "Listo, pendiente agregado."
+
+
+@patch("src.main.conversar_ollama")
+def test_escribe_una_nota_no_se_teclea_en_la_ventana_activa(mock_ollama):
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="Va, la creo.")
+
+    with patch("src.main.REGISTRO.ejecutar") as mock_ejecutar:
+        procesar_comando("escribe una nota sobre node.js")
+
+    mock_ejecutar.assert_not_called()
+    mock_ollama.assert_called_once()
+
+
+@patch("src.main.registrar_turno")
+@patch("src.main.conversar_ollama")
+def test_cada_turno_queda_medido(mock_ollama, mock_turno):
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="Hola.", llamadas_modelo=1)
+
+    procesar_comando("hola", canal="voz")
+
+    argumentos = mock_turno.call_args.kwargs
+    assert argumentos["agente"] == MOTOR_OLLAMA and argumentos["canal"] == "voz" and argumentos["exito"]
+    assert argumentos["llamadas_modelo"] == 1 and argumentos["milisegundos"] >= 0
+
+
+@patch("src.main.conversar_ollama")
+def test_en_voz_dice_una_frase_mientras_usa_una_herramienta_sin_repetir_la_respuesta(mock_ollama):
+    def conversar(mensajes, herramientas=None, ejecutar=None, al_texto=None, al_usar_herramienta=None):
+        al_usar_herramienta("buscar_en_boveda")
+        al_texto("Tu nota dice que usa un event loop. ", ["buscar_en_boveda"])
+        al_texto("Por eso no se bloquea.", ["buscar_en_boveda"])
+        return RespuestaMotor(
+            exito=True, texto="Tu nota dice que usa un event loop. Por eso no se bloquea.", herramientas_usadas=["buscar_en_boveda"]
+        )
+
+    mock_ollama.side_effect = conversar
+    dichas = []
+
+    resultado = procesar_comando("¿qué dice mi nota de node?", al_oracion=dichas.append)
+
+    assert dichas[0] in ("A ver, déjame revisar.", "Mmm, déjame ver.", "Dame un segundo, lo busco.")
+    assert dichas[1:] == ["Tu nota dice que usa un event loop.", "Por eso no se bloquea."]
+    assert resultado.por_decir == ""
+
+
+@patch("src.main.conversar_ollama")
+def test_una_orden_se_acusa_de_inmediato_en_voz(mock_ollama):
+    """Escribir la llamada con una nota completa tarda ~18 s: mejor un "Va, dame un segundito" al instante."""
+    dichas = []
+
+    def conversar(mensajes, **_):
+        assert dichas, "el acuse debe sonar antes de esperar al modelo"
+        return RespuestaMotor(exito=True, texto="Listo, quedó tu nota.", herramientas_usadas=["crear_nota"])
+
+    mock_ollama.side_effect = conversar
+
+    procesar_comando("crea una nota sobre TypeScript", al_oracion=dichas.append)
+
+    assert dichas[0] in ("Va, dame un segundito.", "Sale, ahorita.", "Va, déjame hacerlo.")
+
+
+@patch("src.main.conversar_ollama")
+def test_una_pregunta_no_se_acusa(mock_ollama):
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="Tienes dos.")
+    dichas = []
+
+    procesar_comando("¿cuántos pendientes tengo?", al_oracion=dichas.append)
+
+    assert dichas == []  # la respuesta se dice completa después (por_decir), sin relleno
+
+
+# --- honestidad de Clover ---
+
+
+@patch("src.main.conversar_gemini")
+def test_clover_que_afirma_un_cambio_sin_hacerlo_lo_intenta_de_verdad(mock_gemini):
+    """Caso real de la evaluación: "Hecho. Ya vinculé la nota de Jarvis con la de Ollama" sin llamar nada."""
+    mock_gemini.side_effect = [
+        RespuestaMotor(exito=True, texto="Hecho. Ya vinculé la nota de Jarvis con la de Ollama.", llamadas_modelo=1),
+        RespuestaMotor(
+            exito=True, texto="Hecho, quedaron conectadas.", herramientas_usadas=["conectar_notas"],
+            resultados_herramientas=["Conecté 'Jarvis' con 'Ollama'."], llamadas_modelo=2,
+        ),
+    ]
+
+    resultado = procesar_comando("conecta mi nota de Jarvis con la de Ollama", motor_forzado=MOTOR_GEMINI)
+
+    assert mock_gemini.call_count == 2
+    assert "Verificación del sistema" in mock_gemini.call_args_list[1].args[0]
+    assert resultado.texto == "Hecho, quedaron conectadas."
+
+
+@patch("src.main.conversar_gemini")
+def test_clover_que_insiste_sin_hacerlo_admite_que_no_pudo(mock_gemini):
+    mock_gemini.return_value = RespuestaMotor(exito=True, texto="Listo, ya lo vinculé.")
+
+    resultado = procesar_comando("conecta mi nota de Jarvis con la de Ollama", motor_forzado=MOTOR_GEMINI)
+
+    assert resultado.texto == "No logré hacer eso. ¿Me lo repites, por favor?"
+
+
+@patch("src.main.conversar_gemini")
+def test_clover_honesto_no_gasta_otra_solicitud(mock_gemini):
+    mock_gemini.return_value = RespuestaMotor(exito=True, texto="Hecho.", herramientas_usadas=["conectar_notas"])
+
+    procesar_comando("conecta mi nota de Jarvis con la de Ollama", motor_forzado=MOTOR_GEMINI)
+
+    assert mock_gemini.call_count == 1

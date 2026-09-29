@@ -26,6 +26,18 @@ def _crear_cliente(genai, types, api_key: str):
     )
 
 
+def describir_error(error: str) -> str:
+    """El motivo de un fallo de Gemini en pocas palabras (el error crudo trae JSON de varios cientos de caracteres)."""
+    texto = error.lower()
+    if "429" in texto or "resource_exhausted" in texto or "quota" in texto:
+        return "se acabó la cuota de Gemini por ahora (el plan gratis permite 15 solicitudes por minuto)"
+    if "api_key" in texto or "falta gemini_api_key" in texto or "401" in texto or "403" in texto:
+        return "hay un problema con la clave de Gemini"
+    if any(p in texto for p in ("connect", "conexi", "timeout", "timed out", "network", "getaddrinfo")):
+        return "no hay conexión con Gemini"
+    return "Gemini falló"
+
+
 def preguntar_gemini(
     prompt: str,
     usar_busqueda_web: bool = False,
@@ -67,7 +79,7 @@ def preguntar_gemini(
     except Exception as error:  # noqa: BLE001 - cualquier fallo de la API cae a fallback, no debe crashear
         return RespuestaMotor(exito=False, error=f"Gemini falló: {error}")
 
-    return RespuestaMotor(exito=True, texto=getattr(respuesta, "text", "") or "")
+    return RespuestaMotor(exito=True, texto=getattr(respuesta, "text", "") or "", llamadas_modelo=1)
 
 
 def conversar_gemini(
@@ -105,13 +117,13 @@ def conversar_gemini(
 
     try:
         cliente = _crear_cliente(genai, types, api_key)
-        for _ in range(MAX_RONDAS_HERRAMIENTAS):
+        for ronda in range(MAX_RONDAS_HERRAMIENTAS):
             respuesta = cliente.models.generate_content(model=modelo, contents=contenidos, config=config)
             llamadas = respuesta.function_calls or []
             if not llamadas:
                 return RespuestaMotor(
                     exito=True, texto=respuesta.text or "", herramientas_usadas=usadas,
-                    resultados_herramientas=resultados_texto,
+                    resultados_herramientas=resultados_texto, llamadas_modelo=ronda + 1,
                 )
 
             contenidos.append(respuesta.candidates[0].content)
@@ -126,7 +138,9 @@ def conversar_gemini(
             contenidos.append(types.Content(role="user", parts=partes_respuesta))
     except Exception as error:  # noqa: BLE001 - cualquier fallo de la API cae a fallback, no debe crashear
         # herramientas_usadas va también en el error: si ya actuó, el fallback no debe repetir las acciones.
-        return RespuestaMotor(exito=False, error=f"Gemini falló: {error}", herramientas_usadas=usadas)
+        return RespuestaMotor(
+            exito=False, error=f"Gemini falló: {error}", herramientas_usadas=usadas, resultados_herramientas=resultados_texto
+        )
 
     return RespuestaMotor(
         exito=False, error="Gemini encadenó demasiadas herramientas sin responder", herramientas_usadas=usadas

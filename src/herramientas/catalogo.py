@@ -1,9 +1,13 @@
 """Todas las herramientas del agente, con su grupo y su riesgo.
 
-Grupos: "boveda" (notas de Obsidian), "sistema" (abrir apps, páginas y
-carpetas) y "pantalla" (click y escritura en la ventana activa). A cada
-mensaje solo se le ofrecen los grupos relevantes (seleccionar_grupos), porque
-un modelo local de 8B elige peor entre muchas herramientas.
+Grupos:
+- "boveda": leer, listar y buscar notas; pendientes; perfil y contactos. Va siempre.
+- "notas": gestionar notas libres (crear, ampliar, editar, mover, conectar, eliminar).
+- "sistema": abrir apps, páginas y carpetas.
+- "pantalla": click y escritura en la ventana activa.
+
+A cada mensaje solo se le ofrecen los grupos relevantes (seleccionar_grupos), porque un modelo
+local de 8B elige peor entre muchas herramientas. Gemini recibe siempre bóveda, notas y sistema.
 """
 
 import re
@@ -15,13 +19,25 @@ from src.actions.system_control import escribir_texto, hacer_click
 from src.herramientas.auditoria import registrar_accion
 from src.herramientas.registro import Herramienta, Registro, Riesgo
 from src.obsidian.herramientas import herramienta_buscar, herramienta_leer_nota, herramienta_listar_notas
+from src.obsidian.notas import (
+    agregar_a_nota,
+    conectar_notas,
+    crear_nota,
+    desconectar_notas,
+    editar_nota,
+    eliminar_nota,
+    mover_nota,
+    pregunta_eliminar,
+    sugerir_conexiones,
+)
+from src.obsidian.texto import normalizar
 from src.obsidian.vault_writer import (
     agregar_pendiente,
     agregar_recurrente,
     completar_pendiente,
     guardar_contacto,
-    normalizar,
     recordar_sobre_usuario,
+    reprogramar_pendiente,
 )
 from src.router.intent_router import es_click_riesgoso
 
@@ -31,21 +47,27 @@ _PIDE_SISTEMA = re.compile(
     r"\b(abr[ea]|abrir|lanza|inicia|ejecuta|pagina|sitio|web|enlace|link|url|carpeta|pestana|navegador"
     r"|aplicacion|app|programa)|\w\.(com|mx|org|net|io)\b"
 )
+_PIDE_NOTAS = re.compile(
+    r"\b(nota|notas|apunte|apuntes|documenta|conect|enlaz|vincul|relacion|desconect|muev|mover|move|renombr"
+    r"|borr|elimin|edit|actualiz|agregale|anadele|agrega a|anade a|organiz|ordena|boveda|obsidian|archiv"
+    r"|crea|creame|guarda esto|guarda eso|guardalo|resum|carpeta)"
+)
 
 
 def seleccionar_grupos(texto: str, modelo_local: bool = False) -> set[str]:
     """Grupos de herramientas para este mensaje.
 
-    La bóveda va siempre y "pantalla" solo si el texto pide click o escritura.
-    "sistema" va siempre para Gemini, pero al modelo local solo si el texto pide
-    abrir algo: con esas herramientas de más, qwen3:8b dejaba de leer la bóveda
-    y contestaba de memoria ("¿qué pendientes tengo?" leyó la nota 0 de 4 veces;
-    sin ellas, 4 de 4).
+    La bóveda va siempre y "pantalla" solo si el texto pide click o escritura. "sistema" y "notas"
+    van siempre para Gemini, pero al modelo local solo si el texto los pide: con herramientas de
+    más, qwen3:8b dejaba de leer la bóveda y contestaba de memoria ("¿qué pendientes tengo?" leyó
+    la nota 0 de 4 veces; sin ellas, 4 de 4).
     """
     texto = normalizar(texto)
     grupos = {"boveda"}
     if not modelo_local or _PIDE_SISTEMA.search(texto):
         grupos.add("sistema")
+    if not modelo_local or _PIDE_NOTAS.search(texto):
+        grupos.add("notas")
     if _PIDE_PANTALLA.search(texto):
         grupos.add("pantalla")
     return grupos
@@ -75,81 +97,154 @@ def _riesgo_click(argumentos: dict) -> Riesgo:
     return Riesgo.ALTO if es_click_riesgoso(argumentos.get("texto", "")) else Riesgo.BAJO
 
 
+# Descripciones cortas a propósito: van en cada mensaje al modelo, y en la RX 7600 cada 1000 tokens
+# de contexto bajan la generación ~3 tokens/s (medido).
+_NOTA = "Nombre o ruta de la nota, ej. 'Node.js'."
+
 HERRAMIENTAS = (
-    # --- bóveda ---
+    # --- bóveda: consultar ---
     Herramienta(
         "listar_notas",
-        "Lista todas las notas que existen en la bóveda del usuario.",
+        "Lista las notas por carpeta.",
         "boveda",
         herramienta_listar_notas,
+        {"carpeta": "Opcional, ej. '04-Conocimiento'."},
+        opcionales=frozenset({"carpeta"}),
     ),
-    Herramienta(
-        "leer_nota",
-        "Lee el contenido completo de una nota. Úsala siempre que necesites saber qué dice una nota.",
-        "boveda",
-        herramienta_leer_nota,
-        {"ruta": "Ruta relativa de la nota, por ejemplo '02-Tareas/Pendientes.md'."},
-    ),
+    Herramienta("leer_nota", "Lee una nota completa.", "boveda", herramienta_leer_nota, {"ruta": _NOTA}),
     Herramienta(
         "buscar_en_boveda",
-        "Busca en todas las notas por palabras clave y devuelve en qué notas aparece. "
-        "Después usa leer_nota para ver la nota completa.",
+        "Busca en sus notas por tema o palabras (entiende sinónimos).",
         "boveda",
         herramienta_buscar,
-        {"consulta": "Palabras a buscar."},
+        {"consulta": "Qué buscar."},
     ),
+    # --- bóveda: pendientes ---
     Herramienta(
         "agregar_pendiente",
-        "Agrega una tarea a la lista de pendientes. Úsala solo cuando sepas exactamente cuál es la tarea; "
-        "si el usuario no la dijo, pregúntale primero.",
+        "Agrega una tarea a sus pendientes. Si no dijo cuál, pregúntale antes.",
         "boveda",
         agregar_pendiente,
         {
-            "tarea": "Descripción corta y clara de la tarea, ej. 'Comprar leche'.",
-            "cuando": "Fecha y/o hora en que debe hacerse o recordarse, en lenguaje natural, ej. "
-            "'mañana a las 6pm', 'el viernes'. Solo si el usuario la mencionó; si no, se omite.",
+            "tarea": "La tarea, corta, ej. 'Comprar leche'.",
+            "cuando": "Fecha/hora en lenguaje natural, solo si la dijo, ej. 'mañana a las 6pm'.",
         },
         opcionales=frozenset({"cuando"}),
         riesgo=Riesgo.BAJO,
     ),
     Herramienta(
-        "agregar_recurrente",
-        "Agrega una tarea que se repite (diario, o en ciertos días de la semana), ej. \"tomar la "
-        "medicina diario a las 9pm\" o \"sacar la basura los lunes y jueves a las 8am\". No la uses "
-        "para algo que pasa una sola vez: para eso es agregar_pendiente.",
-        "boveda",
-        agregar_recurrente,
-        {
-            "tarea": "Descripción corta de la tarea, ej. 'Tomar medicina'.",
-            "frecuencia": "Cuándo se repite, en lenguaje natural: 'diario a las 9pm', 'los lunes y "
-            "miércoles a las 8am'. Debe incluir una hora concreta.",
-        },
-        riesgo=Riesgo.BAJO,
-    ),
-    Herramienta(
         "completar_pendiente",
-        "Marca como hecha una tarea de la lista de pendientes.",
+        "Marca como hecha una tarea de sus pendientes.",
         "boveda",
         completar_pendiente,
-        {"descripcion": "Parte del texto de la tarea a completar, ej. 'leche'."},
+        {"descripcion": "Parte del texto de la tarea, ej. 'leche'."},
         riesgo=Riesgo.BAJO,
     ),
     Herramienta(
+        "reprogramar_pendiente",
+        "Cambia la fecha/hora de un pendiente que ya existe: \"pásame lo del reporte para mañana a las 5pm\", "
+        "\"muévelo al lunes\", \"posponlo\".",
+        "boveda",
+        reprogramar_pendiente,
+        {"descripcion": "Parte del texto del pendiente.", "cuando": "Nueva fecha/hora, ej. 'el lunes a las 9am'."},
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "agregar_recurrente",
+        "Agrega una tarea que se repite (diario o ciertos días), siempre con hora.",
+        "boveda",
+        agregar_recurrente,
+        {"tarea": "La tarea, ej. 'Tomar medicina'.", "frecuencia": "Ej. 'diario a las 9pm', 'lunes y jueves a las 8am'."},
+        riesgo=Riesgo.BAJO,
+    ),
+    # --- bóveda: perfil ---
+    Herramienta(
         "recordar_sobre_usuario",
-        "Guarda en el perfil del usuario un dato duradero sobre él (gustos, datos personales, rutinas, "
-        "metas). No lo uses para cosas pasajeras.",
+        "Guarda en su perfil un dato duradero del usuario (gustos, datos, rutinas, metas).",
         "boveda",
         recordar_sobre_usuario,
-        {"dato": "El dato en una oración, ej. 'Le gusta el café sin azúcar'."},
+        {"dato": "Una oración, ej. 'Le gusta el café sin azúcar'."},
         riesgo=Riesgo.BAJO,
     ),
     Herramienta(
         "guardar_contacto",
-        "Guarda una persona que el usuario menciona y lo relevante sobre ella.",
+        "Guarda a una persona importante para el usuario, o le suma un dato.",
         "boveda",
         guardar_contacto,
-        {"nombre": "Nombre de la persona.", "detalle": "Relación con el usuario y datos relevantes."},
+        {"nombre": "Nombre de la persona.", "detalle": "Relación y datos."},
         riesgo=Riesgo.BAJO,
+    ),
+    # --- notas libres ---
+    Herramienta(
+        "crear_nota",
+        "Crea una nota nueva (idea, tema de estudio, proyecto, decisión); no para pendientes, perfil ni "
+        "contactos. Se acomoda en su carpeta y se conecta sola con su tema.",
+        "notas",
+        crear_nota,
+        {
+            "ruta": "Título, con carpeta si la sabes: 'Node.js' o '04-Conocimiento/Programación/Node.js'.",
+            "contenido": "El contenido, en Markdown.",
+            "etiquetas": "Opcional, separadas por coma.",
+        },
+        opcionales=frozenset({"etiquetas"}),
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "agregar_a_nota",
+        "Agrega texto al final de una nota que ya existe.",
+        "notas",
+        agregar_a_nota,
+        {"ruta": _NOTA, "texto": "Lo que se agrega, en Markdown."},
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "editar_nota",
+        "Reescribe una nota existente (léela antes); conserva sus enlaces y respalda la versión anterior.",
+        "notas",
+        editar_nota,
+        {"ruta": _NOTA, "contenido": "El contenido completo nuevo."},
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "mover_nota",
+        "Mueve o renombra una nota y actualiza los enlaces a ella.",
+        "notas",
+        mover_nota,
+        {"ruta": _NOTA, "destino": "Carpeta, nombre nuevo o ruta completa."},
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "conectar_notas",
+        "Enlaza dos notas relacionadas; di el motivo.",
+        "notas",
+        conectar_notas,
+        {"origen": _NOTA, "destino": "La otra nota.", "motivo": "Opcional: por qué se relacionan."},
+        opcionales=frozenset({"motivo"}),
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "desconectar_notas",
+        "Quita el enlace de una nota a otra.",
+        "notas",
+        desconectar_notas,
+        {"origen": _NOTA, "destino": "La otra nota."},
+        riesgo=Riesgo.BAJO,
+    ),
+    Herramienta(
+        "sugerir_conexiones",
+        "Dice con qué notas se relaciona una nota y por qué.",
+        "notas",
+        sugerir_conexiones,
+        {"ruta": _NOTA},
+    ),
+    Herramienta(
+        "eliminar_nota",
+        "Manda una nota a la papelera de Windows (recuperable).",
+        "notas",
+        eliminar_nota,
+        {"ruta": "Nombre o ruta exacta de la nota."},
+        riesgo=Riesgo.ALTO,
+        pregunta=pregunta_eliminar,
     ),
     # --- sistema ---
     Herramienta(

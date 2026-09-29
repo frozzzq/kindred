@@ -12,7 +12,7 @@ import re
 import time
 from collections.abc import Callable
 
-from src.obsidian.vault_writer import normalizar
+from src.obsidian.texto import normalizar
 from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA
 
 NOMBRES = {"crimson": MOTOR_OLLAMA, "clover": MOTOR_GEMINI}

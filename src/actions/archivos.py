@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from src.actions.system_control import SIGNOS_A_QUITAR, ResultadoAccion
-from src.obsidian.vault_writer import normalizar
+from src.obsidian.texto import normalizar
 
 # Cómo se dicen en español → carpeta real (en disco se llaman en inglés aunque Windows las muestre traducidas).
 NOMBRES_CARPETAS = {

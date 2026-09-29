@@ -10,8 +10,11 @@ afirmar un cambio/acción que no hizo (bóveda o sistema), o negar uno que sí h
 """
 
 import re
+from pathlib import PurePosixPath
 
-from src.obsidian.vault_reader import buscar_en_boveda, leer_nota, listar_rutas_relativas
+from src.obsidian import indice
+from src.obsidian.estructura import es_de_sistema
+from src.obsidian.vault_reader import leer_nota, listar_rutas_relativas, resolver_nota
 
 MAX_CARACTERES_NOTA = 6000
 
@@ -26,30 +29,52 @@ def _como_dato(contenido: str) -> str:
     return f"{_INICIO_CONTENIDO}\n{contenido}\n{_FIN_CONTENIDO}"
 
 
-def herramienta_leer_nota(ruta: str) -> str:
-    contenido = leer_nota(ruta)
-    if contenido is None:
-        return f"La nota '{ruta}' no existe. Usa listar_notas para ver las disponibles."
-    if not contenido.strip():
-        return f"La nota '{ruta}' está vacía."
-    if len(contenido) > MAX_CARACTERES_NOTA:
-        contenido = contenido[-MAX_CARACTERES_NOTA:] + "\n[nota recortada: se muestran solo las últimas líneas]"
+def como_dato(contenido: str) -> str:
     return _como_dato(contenido)
 
 
-def herramienta_listar_notas() -> str:
-    return "\n".join(listar_rutas_relativas()) or "La bóveda está vacía."
+def herramienta_leer_nota(ruta: str) -> str:
+    ruta_real = resolver_nota(ruta)
+    if ruta_real is None:
+        return f"La nota '{ruta}' no existe. Usa listar_notas o buscar_en_boveda para ver cuáles hay."
+    contenido = leer_nota(ruta_real) or ""
+    if not contenido.strip():
+        return f"La nota '{ruta_real}' está vacía."
+    if len(contenido) > MAX_CARACTERES_NOTA:
+        contenido = contenido[:MAX_CARACTERES_NOTA] + "\n[nota recortada: es muy larga, pide una parte concreta]"
+    return f"Nota {ruta_real}:\n" + _como_dato(contenido)
+
+
+def herramienta_listar_notas(carpeta: str | None = None) -> str:
+    """Notas agrupadas por carpeta (sin las de 00-Sistema), opcionalmente solo de una carpeta."""
+    rutas = [r for r in listar_rutas_relativas() if not es_de_sistema(r)]
+    if carpeta:
+        rutas = [r for r in rutas if r.lower().startswith(carpeta.strip("/ ").lower() + "/")]
+    if not rutas:
+        return "No hay notas ahí." if carpeta else "La bóveda está vacía."
+    por_carpeta: dict[str, list[str]] = {}
+    for ruta in rutas:
+        por_carpeta.setdefault(PurePosixPath(ruta).parent.as_posix(), []).append(PurePosixPath(ruta).stem)
+    return "\n".join(f"{c if c != '.' else '(raíz)'}: {', '.join(nombres)}" for c, nombres in por_carpeta.items())
 
 
 def herramienta_buscar(consulta: str) -> str:
-    resultados = buscar_en_boveda(consulta)
+    indice.actualizar_sin_fallar()
+    resultados = indice.buscar(consulta, k=4)
     if not resultados:
         return f"No encontré nada sobre '{consulta}' en la bóveda."
-    return _como_dato("\n".join(f"[{r.ruta_relativa}]: {r.fragmento}" for r in resultados))
+    bloques = []
+    for r in resultados:
+        titulo = r.ruta + (f" > {r.encabezado}" if r.encabezado else "")
+        bloques.append(f"[{titulo}]\n{r.texto}")
+    return _como_dato("\n\n".join(bloques))
 
 
 HERRAMIENTAS_DE_ESCRITURA = {
-    "agregar_pendiente", "completar_pendiente", "agregar_recurrente", "recordar_sobre_usuario", "guardar_contacto",
+    "agregar_pendiente", "completar_pendiente", "reprogramar_pendiente", "agregar_recurrente",
+    "recordar_sobre_usuario", "guardar_contacto",
+    "crear_nota", "agregar_a_nota", "editar_nota", "mover_nota", "conectar_notas", "desconectar_notas",
+    "eliminar_nota",
 }
 
 # "Anoté", "marqué", "añadí", "he agregado", "ya quedó guardado", "Listo, anotado"... y también
@@ -57,7 +82,10 @@ HERRAMIENTAS_DE_ESCRITURA = {
 # sin haber llamado la herramienta, está afirmando algo que no hizo (pasó en pruebas reales).
 # El participio solo cuenta como afirmación, no como descripción: al leer los pendientes decía
 # "un pendiente agregado el 27" (la fecha de la nota) y se tomaba como un cambio no hecho.
-_VERBOS_DE_CAMBIO = r"(agreg|añad|anot|apunt|guard|marc|marqu|complet|registr|elimin|borr)"
+_VERBOS_DE_CAMBIO = (
+    r"(agreg|añad|anot|apunt|guard|marc|marqu|complet|registr|elimin|borr|cre|conect|desconect"
+    r"|edit|actualiz|actualic|mov|renombr|reprogram|cambi|vincul|enlac|enlaz)"
+)
 _AFIRMA_CAMBIO = re.compile(
     rf"\b{_VERBOS_DE_CAMBIO}(u?é|í)\b"
     rf"|(\b(he|ha|hemos|ya|qued[óoa]n?|está|están|fue|listo,?)\s+|(^|[.!?¡]\s*)(\w+\s+)?){_VERBOS_DE_CAMBIO}[ai]d[oa]s?\b"
@@ -118,7 +146,8 @@ def afirma_accion_sin_hacerla(texto: str, herramientas_usadas: list[str]) -> boo
 # porque, tras fallar de verdad un par de veces por errores de transcripción, el modelo se queda
 # repitiendo la misma frase de las últimas veces aunque esta sí haya funcionado.
 _NIEGA_ACCION = re.compile(
-    r"\bno\s+(hice|logr[eé]|pude|complet[eé]|agregu[eé]|guard[eé]|anot[eé]|abr[ií]|escrib[ií])\b"
+    r"\bno\s+(hice|logr[eé]|pude|complet[eé]|agregu[eé]|guard[eé]|anot[eé]|abr[ií]|escrib[ií]"
+    r"|elimin[eé]|cre[eé]|conect[eé]|edit[eé]|actualic[eé]|mov[ií]|reprogram[eé]|vincul[eé]|enlac[eé])\b"
     r"|\bno\s+se\s+(hizo|logr[oó]|guard[oó]|agreg[oó]|complet[oó]|pudo)\b",
     re.IGNORECASE,
 )

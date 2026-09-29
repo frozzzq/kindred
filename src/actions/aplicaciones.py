@@ -18,7 +18,7 @@ from pathlib import Path
 
 from src.actions.system_control import SIGNOS_A_QUITAR, ResultadoAccion
 from src.obsidian.vault_reader import leer_nota
-from src.obsidian.vault_writer import normalizar
+from src.obsidian.texto import normalizar
 
 RUTA_ALIAS = "00-Sistema/Alias-Aplicaciones.md"
 HORAS_VIGENCIA_INDICE = 24

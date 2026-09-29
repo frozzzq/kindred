@@ -10,10 +10,10 @@ real y decidir si vale la pena ajustar el router.
 import re
 from dataclasses import dataclass, field
 
-from src.obsidian.vault_reader import leer_nota
+from src.obsidian.estructura import CARPETA_LOGS
+from src.obsidian.vault_reader import leer_nota, listar_rutas_relativas
 from src.router.intent_router import MOTOR_GEMINI, MOTOR_GEMINI_FALLO
 
-RUTA_LOG = "00-Sistema/Logs-Interacciones.md"
 PATRON_ENTRADA = re.compile(r"^### .+ \((\w+)\)\s*$", re.MULTILINE)
 
 
@@ -43,13 +43,11 @@ class Metricas:
 
 
 def calcular_metricas() -> Metricas:
-    """Lee el log de interacciones de la bóveda y cuenta cuántas atendió cada motor."""
-    contenido = leer_nota(RUTA_LOG)
-    if not contenido:
-        return Metricas()
-
+    """Lee los logs de interacciones (uno por mes) y cuenta cuántas atendió cada motor."""
     conteo: dict[str, int] = {}
-    for motor in PATRON_ENTRADA.findall(contenido):
-        conteo[motor] = conteo.get(motor, 0) + 1
-
+    for ruta in listar_rutas_relativas():
+        if not ruta.startswith(CARPETA_LOGS + "/"):
+            continue
+        for motor in PATRON_ENTRADA.findall(leer_nota(ruta) or ""):
+            conteo[motor] = conteo.get(motor, 0) + 1
     return Metricas(conteo_por_motor=conteo)

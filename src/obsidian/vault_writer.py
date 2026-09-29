@@ -1,10 +1,20 @@
-"""Escritura de notas en la boveda de Obsidian."""
+"""Escritura de las notas operativas de la bóveda: pendientes, recurrentes, perfil, contactos y log.
+
+Las notas libres (crear, editar, conectar, mover, eliminar) están en src/obsidian/notas.py.
+"""
 
 import re
-import unicodedata
 from datetime import datetime
 
+import numpy as np
+
+from src.engines import embeddings
 from src.obsidian.config import ruta_boveda
+from src.obsidian.estructura import CARPETA_LOGS
+from src.obsidian.fechas import formatear_tags, parsear_fecha_hora
+from src.obsidian.formato import insertar_antes_de_relacionado
+from src.obsidian.texto import normalizar
+from src.obsidian.vault_reader import resolver_ruta
 
 RUTA_PENDIENTES = "02-Tareas/Pendientes.md"
 RUTA_COMPLETADAS = "02-Tareas/Completadas.md"
@@ -12,20 +22,18 @@ RUTA_RECURRENTES = "02-Tareas/Recurrentes.md"
 RUTA_PERFIL = "01-Perfil/Yo.md"
 RUTA_CONTACTOS = "01-Perfil/Contactos.md"
 RUTA_PATRONES = "01-Perfil/Patrones.md"
-RUTA_LOG = "00-Sistema/Logs-Interacciones.md"
 
 MARCA_PENDIENTE = "- [ ] "
 MARCA_RECURRENTE = "- "
 
 
+def ruta_log(momento: datetime | None = None) -> str:
+    """Log de interacciones del mes: uno por mes, para que no crezca sin fin (00-Sistema/Logs/AAAA-MM.md)."""
+    return f"{CARPETA_LOGS}/{(momento or datetime.now()):%Y-%m}.md"
+
+
 def _ahora() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
-
-
-def normalizar(texto: str) -> str:
-    """Minúsculas y sin acentos, para comparar textos sin importar cómo se escribieron."""
-    sin_acentos = unicodedata.normalize("NFD", texto.lower())
-    return "".join(c for c in sin_acentos if unicodedata.category(c) != "Mn")
 
 
 _PALABRAS_VACIAS = {
@@ -35,6 +43,9 @@ _PALABRAS_VACIAS = {
 # Formas distintas de decir lo mismo que el modelo alterna ("se llama" / "su nombre es").
 _SINONIMOS = {"llama": "nombre", "llamo": "nombre", "encanta": "gusta", "encantan": "gusta", "gustan": "gusta"}
 UMBRAL_DUPLICADO = 0.75
+# Dos oraciones cortas que dicen lo mismo con otras palabras ("Suele interactuar con su lista de
+# pendientes" / "Frecuentemente interactúa con su lista de pendientes") dan > 0.85 de similitud.
+UMBRAL_DUPLICADO_SEMANTICO = 0.85
 
 
 def _palabras_clave(texto: str) -> set[str]:
@@ -42,45 +53,66 @@ def _palabras_clave(texto: str) -> set[str]:
     return {_SINONIMOS.get(p, p) for p in palabras if len(p) >= 3 and p not in _PALABRAS_VACIAS}
 
 
-def ya_esta_anotado(dato: str, contenido: str) -> bool:
-    """True si alguna línea de la nota ya dice lo mismo que `dato` con otras palabras.
+def _lineas_con_texto(contenido: str) -> list[str]:
+    return [linea.strip("- ").strip() for linea in contenido.splitlines() if linea.strip() and not linea.startswith("#")]
 
-    Pasó en pruebas reales: "mi nombre es Josue" y "Su nombre es Josue"
-    quedaron como dos líneas distintas del perfil.
+
+def ya_esta_anotado(dato: str, contenido: str, semantico: bool = False) -> bool:
+    """True si alguna línea de la nota ya dice lo mismo que `dato`, aunque sea con otras palabras.
+
+    Primero por palabras clave (instantáneo); con semantico=True, también por significado con
+    embeddings. Pasó en pruebas reales: "mi nombre es Josue" y "Su nombre es Josue" quedaban como
+    dos líneas, y Patrones.md acumuló cinco versiones de "interactúa con sus pendientes". No se usa
+    en pendientes: "Comprar leche" y "Comprar pan" se parecen mucho en significado y son distintos.
     """
     clave = _palabras_clave(dato)
     if not clave:
         return True
-    return any(
-        len(clave & _palabras_clave(linea)) / len(clave) >= UMBRAL_DUPLICADO
-        for linea in contenido.splitlines()
-    )
+    lineas = _lineas_con_texto(contenido)
+    if any(len(clave & _palabras_clave(linea)) / len(clave) >= UMBRAL_DUPLICADO for linea in lineas):
+        return True
+    if not semantico or not lineas:
+        return False
+    vectores = embeddings.embeber([dato, *lineas])
+    if vectores is None or len(vectores) < 2:
+        return False
+    return bool(np.max(vectores[1:] @ vectores[0]) >= UMBRAL_DUPLICADO_SEMANTICO)
 
 
 def escribir_nota(ruta_relativa: str, contenido: str, sobrescribir: bool = False) -> None:
     """Crea o actualiza una nota, creando las carpetas necesarias si faltan.
 
-    Si la nota ya existe y sobrescribir=False, el contenido nuevo se agrega
-    al final en vez de reemplazar lo existente.
+    Si la nota ya existe y sobrescribir=False, el contenido nuevo se agrega al final en vez de
+    reemplazar lo existente. Rechaza rutas fuera de la bóveda (pueden venir del modelo).
     """
-    ruta = ruta_boveda() / ruta_relativa
+    ruta = resolver_ruta(ruta_relativa)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     if ruta.exists() and not sobrescribir:
         contenido_previo = ruta.read_text(encoding="utf-8")
-        contenido = contenido_previo.rstrip("\n") + "\n" + contenido if contenido_previo else contenido
+        contenido = contenido_previo.rstrip("\n") + "\n" + contenido if contenido_previo.strip() else contenido
     ruta.write_text(contenido, encoding="utf-8")
+
+
+def _leer(ruta_relativa: str) -> str:
+    ruta = ruta_boveda() / ruta_relativa
+    return ruta.read_text(encoding="utf-8") if ruta.exists() else ""
+
+
+def _agregar_linea(ruta_relativa: str, linea: str) -> None:
+    """Agrega una línea al final de la nota, pero antes de su sección Relacionado si la tiene."""
+    escribir_nota(ruta_relativa, insertar_antes_de_relacionado(_leer(ruta_relativa), linea, separar=False), sobrescribir=True)
+
+
+# ---------- pendientes ----------
 
 
 def agregar_pendiente(tarea: str, cuando: str | None = None) -> str:
     """Agrega una tarea a Pendientes.md, si no estaba ya (aunque esté redactada distinto).
 
     `cuando` es la fecha/hora en lenguaje natural ("mañana a las 6pm", "el viernes"); si no se
-    entiende ninguna fecha ahí, el pendiente se agrega igual, sin fecha (como antes de la Fase 7).
+    entiende ninguna fecha ahí, el pendiente se agrega igual, sin fecha.
     El "(agregado ...)" del final es de cuándo se agregó, no un vencimiento.
     """
-    # Import local: fechas.py importa normalizar de este módulo, y así se evita el ciclo.
-    from src.obsidian.fechas import formatear_tags, parsear_fecha_hora
-
     tarea = tarea.strip()
     if ya_esta_anotado(tarea, _leer(RUTA_PENDIENTES)):
         return f"Ya tenías ese pendiente: {tarea}"
@@ -91,8 +123,18 @@ def agregar_pendiente(tarea: str, cuando: str | None = None) -> str:
         if fecha:
             etiqueta = " " + formatear_tags(fecha, hora)
             aviso = f" para el {fecha.isoformat()}" + (f" a las {hora.strftime('%H:%M')}" if hora else "")
-    escribir_nota(RUTA_PENDIENTES, f"{MARCA_PENDIENTE}{tarea}{etiqueta} (agregado {_ahora()})")
+    _agregar_linea(RUTA_PENDIENTES, f"{MARCA_PENDIENTE}{tarea}{etiqueta} (agregado {_ahora()})")
     return f"Pendiente agregado: {tarea}{aviso}"
+
+
+def _buscar_pendiente(descripcion: str) -> tuple[list[str], list[int]]:
+    ruta = ruta_boveda() / RUTA_PENDIENTES
+    lineas = ruta.read_text(encoding="utf-8").splitlines() if ruta.exists() else []
+    buscado = normalizar(descripcion)
+    coincidencias = [
+        i for i, linea in enumerate(lineas) if linea.startswith(MARCA_PENDIENTE) and buscado in normalizar(linea)
+    ]
+    return lineas, coincidencias
 
 
 def completar_pendiente(descripcion: str) -> str:
@@ -101,14 +143,7 @@ def completar_pendiente(descripcion: str) -> str:
     Si no hay coincidencia o hay varias, no toca nada y lo informa, para que
     el agente le pregunte al usuario cuál era.
     """
-    ruta = ruta_boveda() / RUTA_PENDIENTES
-    lineas = ruta.read_text(encoding="utf-8").splitlines() if ruta.exists() else []
-    buscado = normalizar(descripcion)
-    coincidencias = [
-        i for i, linea in enumerate(lineas)
-        if linea.startswith(MARCA_PENDIENTE) and buscado in normalizar(linea)
-    ]
-
+    lineas, coincidencias = _buscar_pendiente(descripcion)
     if not coincidencias:
         return f"No encontré ningún pendiente que coincida con '{descripcion}'."
     if len(coincidencias) > 1:
@@ -120,6 +155,34 @@ def completar_pendiente(descripcion: str) -> str:
     escribir_nota(RUTA_PENDIENTES, "\n".join(lineas) + ("\n" if lineas else ""), sobrescribir=True)
     escribir_nota(RUTA_COMPLETADAS, f"- [x] {tarea} (completado {_ahora()})")
     return f"Pendiente completado: {tarea}"
+
+
+_TAGS_FECHA = re.compile(r"\s*(📅\s*\d{4}-\d{2}-\d{2}|⏰\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})")
+
+
+def reprogramar_pendiente(descripcion: str, cuando: str) -> str:
+    """Cambia la fecha/hora de un pendiente existente ("pásalo al lunes a las 9am")."""
+    lineas, coincidencias = _buscar_pendiente(descripcion)
+    if not coincidencias:
+        return f"No encontré ningún pendiente que coincida con '{descripcion}'."
+    if len(coincidencias) > 1:
+        opciones = "; ".join(lineas[i][len(MARCA_PENDIENTE):] for i in coincidencias)
+        return f"Hay varios pendientes que coinciden, pregunta cuál: {opciones}"
+    fecha, hora = parsear_fecha_hora(cuando)
+    if fecha is None:
+        return f"No entendí para cuándo lo paso: '{cuando}'. Dime un día (y si quieres una hora con am o pm)."
+
+    indice = coincidencias[0]
+    sin_fecha = _TAGS_FECHA.sub("", lineas[indice])
+    agregado = re.search(r"\s*\(agregado [^)]*\)\s*$", sin_fecha)
+    base = sin_fecha[: agregado.start()] if agregado else sin_fecha
+    sufijo = agregado.group(0) if agregado else ""
+    lineas[indice] = f"{base.rstrip()} {formatear_tags(fecha, hora)}{sufijo}"
+    escribir_nota(RUTA_PENDIENTES, "\n".join(lineas) + "\n", sobrescribir=True)
+    tarea = base[len(MARCA_PENDIENTE):].strip()
+    return f"Pendiente reprogramado: {tarea} para el {fecha.isoformat()}" + (
+        f" a las {hora.strftime('%H:%M')}" if hora else ""
+    )
 
 
 def agregar_recurrente(tarea: str, frecuencia: str) -> str:
@@ -139,38 +202,47 @@ def agregar_recurrente(tarea: str, frecuencia: str) -> str:
         )
     if ya_esta_anotado(tarea, _leer(RUTA_RECURRENTES)):
         return f"Ya tenías esa tarea recurrente: {tarea}"
-    escribir_nota(RUTA_RECURRENTES, f"{MARCA_RECURRENTE}{formatear_linea(tarea, recurrencia)} (agregado {_ahora()})")
+    _agregar_linea(RUTA_RECURRENTES, f"{MARCA_RECURRENTE}{formatear_linea(tarea, recurrencia)} (agregado {_ahora()})")
     return f"Tarea recurrente agregada: {tarea}"
 
 
-def _leer(ruta_relativa: str) -> str:
-    ruta = ruta_boveda() / ruta_relativa
-    return ruta.read_text(encoding="utf-8") if ruta.exists() else ""
+# ---------- perfil ----------
 
 
 def recordar_sobre_usuario(dato: str) -> str:
     """Anota un dato duradero sobre el usuario en su perfil (Yo.md), si no estaba ya."""
-    if ya_esta_anotado(dato, _leer(RUTA_PERFIL)):
+    if ya_esta_anotado(dato, _leer(RUTA_PERFIL), semantico=True):
         return f"Ya estaba anotado en tu perfil: {dato.strip()}"
-    escribir_nota(RUTA_PERFIL, f"- {dato.strip()} ({_ahora()[:10]})")
+    _agregar_linea(RUTA_PERFIL, f"- {dato.strip()} ({_ahora()[:10]})")
     return f"Anotado en tu perfil: {dato.strip()}"
 
 
 def guardar_contacto(nombre: str, detalle: str) -> str:
-    """Agrega un contacto (persona y lo que se sabe de ella) a Contactos.md."""
-    escribir_nota(RUTA_CONTACTOS, f"- **{nombre.strip()}**: {detalle.strip()} ({_ahora()[:10]})")
-    return f"Contacto guardado: {nombre.strip()}"
+    """Agrega un contacto (persona y lo que se sabe de ella) a Contactos.md, o le suma el detalle si ya estaba."""
+    nombre, detalle = nombre.strip(), detalle.strip()
+    contenido = _leer(RUTA_CONTACTOS)
+    lineas = contenido.splitlines()
+    marca = f"- **{normalizar(nombre)}**"
+    for i, linea in enumerate(lineas):
+        if normalizar(linea).startswith(marca):
+            if ya_esta_anotado(detalle, linea, semantico=True):
+                return f"Ya tenía eso de {nombre}."
+            lineas[i] = f"{linea.rstrip()}; {detalle}"
+            escribir_nota(RUTA_CONTACTOS, "\n".join(lineas) + "\n", sobrescribir=True)
+            return f"Contacto actualizado: {nombre}"
+    _agregar_linea(RUTA_CONTACTOS, f"- **{nombre}**: {detalle} ({_ahora()[:10]})")
+    return f"Contacto guardado: {nombre}"
 
 
 def anotar_patron(patron: str) -> str:
     """Anota un patrón de comportamiento observado en Patrones.md, si no estaba ya."""
-    if ya_esta_anotado(patron, _leer(RUTA_PATRONES)):
+    if ya_esta_anotado(patron, _leer(RUTA_PATRONES), semantico=True):
         return f"Ya estaba anotado el patrón: {patron.strip()}"
-    escribir_nota(RUTA_PATRONES, f"- {patron.strip()} ({_ahora()[:10]})")
+    _agregar_linea(RUTA_PATRONES, f"- {patron.strip()} ({_ahora()[:10]})")
     return f"Patrón anotado: {patron.strip()}"
 
 
 def registrar_interaccion(texto_usuario: str, respuesta: str, motor: str) -> None:
-    """Agrega una entrada al log de interacciones."""
+    """Agrega una entrada al log de interacciones del mes."""
     entrada = f"### {_ahora()} ({motor})\n**Usuario:** {texto_usuario}\n**Respuesta:** {respuesta}\n"
-    escribir_nota(RUTA_LOG, entrada)
+    escribir_nota(ruta_log(), entrada)

@@ -26,8 +26,9 @@ LOG_DE_EJEMPLO = """\
 """
 
 
+@patch("src.obsidian.metricas.listar_rutas_relativas", return_value=["00-Sistema/Logs/2026-09.md", "01-Perfil/Yo.md"])
 @patch("src.obsidian.metricas.leer_nota", return_value=LOG_DE_EJEMPLO)
-def test_calcular_metricas_cuenta_por_motor(mock_leer):
+def test_calcular_metricas_cuenta_por_motor(mock_leer, mock_listar):
     metricas = calcular_metricas()
 
     assert metricas.conteo_por_motor == {
@@ -38,15 +39,17 @@ def test_calcular_metricas_cuenta_por_motor(mock_leer):
     }
 
 
+@patch("src.obsidian.metricas.listar_rutas_relativas", return_value=["00-Sistema/Logs/2026-09.md", "01-Perfil/Yo.md"])
 @patch("src.obsidian.metricas.leer_nota", return_value=LOG_DE_EJEMPLO)
-def test_total_resueltas_no_cuenta_fallos_de_gemini(mock_leer):
+def test_total_resueltas_no_cuenta_fallos_de_gemini(mock_leer, mock_listar):
     metricas = calcular_metricas()
 
     assert metricas.total_resueltas == 4
 
 
+@patch("src.obsidian.metricas.listar_rutas_relativas", return_value=["00-Sistema/Logs/2026-09.md", "01-Perfil/Yo.md"])
 @patch("src.obsidian.metricas.leer_nota", return_value=LOG_DE_EJEMPLO)
-def test_porcentaje_por_motor(mock_leer):
+def test_porcentaje_por_motor(mock_leer, mock_listar):
     metricas = calcular_metricas()
 
     assert metricas.porcentaje(MOTOR_OLLAMA) == 50.0
@@ -54,8 +57,9 @@ def test_porcentaje_por_motor(mock_leer):
     assert metricas.porcentaje(MOTOR_ACCION) == 25.0
 
 
+@patch("src.obsidian.metricas.listar_rutas_relativas", return_value=["00-Sistema/Logs/2026-09.md", "01-Perfil/Yo.md"])
 @patch("src.obsidian.metricas.leer_nota", return_value=LOG_DE_EJEMPLO)
-def test_tasa_exito_gemini(mock_leer):
+def test_tasa_exito_gemini(mock_leer, mock_listar):
     metricas = calcular_metricas()
 
     assert metricas.tasa_exito_gemini() == 50.0
@@ -65,8 +69,9 @@ def test_tasa_exito_gemini_none_sin_intentos():
     assert Metricas().tasa_exito_gemini() is None
 
 
+@patch("src.obsidian.metricas.listar_rutas_relativas", return_value=[])
 @patch("src.obsidian.metricas.leer_nota", return_value=None)
-def test_calcular_metricas_sin_log(mock_leer):
+def test_calcular_metricas_sin_log(mock_leer, mock_listar):
     metricas = calcular_metricas()
 
     assert metricas.total_resueltas == 0

@@ -7,29 +7,34 @@ no sumar latencia a la conversación.
 La primera vez solo marca el punto de partida (no procesa el historial
 previo), porque el log viejo está lleno de pruebas y transcripciones
 erróneas de las que no conviene "aprender".
+
+El cursor (hasta qué interacción ya se reflexionó) es estado técnico: vive en estado.db, no en
+una nota. Es la fecha de la última entrada procesada, así sirve aunque el log rote cada mes.
 """
 
 import json
 import re
+import sqlite3
 import threading
+from datetime import datetime, timedelta
 
 from src.engines.ollama_client import preguntar_ollama
+from src.nucleo import estado
 from src.obsidian.vault_reader import leer_nota
 from src.obsidian.vault_writer import (
-    RUTA_LOG,
     RUTA_PATRONES,
     RUTA_PERFIL,
     anotar_patron,
-    escribir_nota,
     recordar_sobre_usuario,
+    ruta_log,
     ya_esta_anotado,
 )
 from src.router.intent_router import MOTOR_GEMINI_FALLO
 
-RUTA_CONFIG = "00-Sistema/Configuracion.md"
-CLAVE_ULTIMA_REFLEXION = "ultima_reflexion"
+CLAVE_CURSOR = "reflexion.ultima_entrada"
 CADA_N_INTERACCIONES = 10
 MAX_INTERACCIONES_POR_REFLEXION = 30
+_FECHA_ENTRADA = re.compile(r"^### (\d{4}-\d{2}-\d{2} \d{2}:\d{2})")
 
 _en_curso = threading.Lock()
 
@@ -53,25 +58,23 @@ Ignora pruebas del sistema, preguntas de cultura general, frases sin sentido o m
 Responde solo con JSON: {{"datos_usuario": [...], "patrones": [...]}}"""
 
 
-def _leer_config() -> dict[str, str]:
-    contenido = leer_nota(RUTA_CONFIG) or ""
-    config = {}
-    for linea in contenido.splitlines():
-        if ":" in linea:
-            clave, valor = linea.split(":", 1)
-            config[clave.strip()] = valor.strip()
-    return config
+def _entradas_log(ahora: datetime | None = None) -> list[tuple[str, str]]:
+    """(fecha, entrada) del log de este mes y el anterior, en orden. Cada entrada empieza con '### fecha (motor)'."""
+    ahora = ahora or datetime.now()
+    mes_anterior = ahora.replace(day=1) - timedelta(days=1)
+    entradas = []
+    for ruta in (ruta_log(mes_anterior), ruta_log(ahora)):
+        contenido = leer_nota(ruta) or ""
+        for entrada in re.split(r"^(?=### )", contenido, flags=re.MULTILINE):
+            coincidencia = _FECHA_ENTRADA.match(entrada.strip())
+            if coincidencia:
+                entradas.append((coincidencia.group(1), entrada.strip()))
+    return entradas
 
 
-def _guardar_config(clave: str, valor: str) -> None:
-    config = _leer_config() | {clave: valor}
-    escribir_nota(RUTA_CONFIG, "\n".join(f"{k}: {v}" for k, v in config.items()) + "\n", sobrescribir=True)
-
-
-def _entradas_log() -> list[str]:
-    """Entradas del log (cada una empieza con '### fecha (motor)')."""
-    contenido = leer_nota(RUTA_LOG) or ""
-    return [e.strip() for e in re.split(r"^(?=### )", contenido, flags=re.MULTILINE) if e.strip()]
+def _nuevas_entradas() -> list[tuple[str, str]]:
+    cursor = estado.leer_valor(CLAVE_CURSOR) or ""
+    return [(fecha, entrada) for fecha, entrada in _entradas_log() if fecha > cursor]
 
 
 def _nuevos(candidatos: list, existente: str) -> list[str]:
@@ -80,19 +83,18 @@ def _nuevos(candidatos: list, existente: str) -> list[str]:
     for candidato in candidatos:
         if not isinstance(candidato, str) or not candidato.strip():
             continue
-        if ya_esta_anotado(candidato, existente + "\n" + "\n".join(nuevos)):
+        if ya_esta_anotado(candidato, existente + "\n" + "\n".join(nuevos), semantico=True):
             continue
         nuevos.append(candidato.strip())
     return nuevos
 
 
 def debe_reflexionar() -> bool:
-    total = len(_entradas_log())
-    config = _leer_config()
-    if CLAVE_ULTIMA_REFLEXION not in config:
-        _guardar_config(CLAVE_ULTIMA_REFLEXION, str(total))
+    if estado.leer_valor(CLAVE_CURSOR) is None:
+        entradas = _entradas_log()
+        estado.guardar_valor(CLAVE_CURSOR, entradas[-1][0] if entradas else "")
         return False
-    return total - int(config[CLAVE_ULTIMA_REFLEXION]) >= CADA_N_INTERACCIONES
+    return len(_nuevas_entradas()) >= CADA_N_INTERACCIONES
 
 
 def _extraer_y_anotar(interacciones: list[str], incluir_patrones: bool) -> list[str]:
@@ -123,13 +125,14 @@ def _extraer_y_anotar(interacciones: list[str], incluir_patrones: bool) -> list[
 
 def reflexionar() -> list[str]:
     """Revisa las interacciones nuevas y anota lo aprendido. Devuelve lo anotado."""
-    entradas = _entradas_log()
-    ultima = int(_leer_config().get(CLAVE_ULTIMA_REFLEXION, len(entradas)))
-    nuevas = [e for e in entradas[ultima:] if f"({MOTOR_GEMINI_FALLO})" not in e.splitlines()[0]]
+    todas = _nuevas_entradas()
+    if not todas:
+        return []
+    nuevas = [e for _fecha, e in todas if f"({MOTOR_GEMINI_FALLO})" not in e.splitlines()[0]]
     nuevas = nuevas[-MAX_INTERACCIONES_POR_REFLEXION:]
 
     anotado = _extraer_y_anotar(nuevas, incluir_patrones=True) if nuevas else []
-    _guardar_config(CLAVE_ULTIMA_REFLEXION, str(len(entradas)))
+    estado.guardar_valor(CLAVE_CURSOR, todas[-1][0])
     return anotado
 
 
@@ -139,6 +142,11 @@ _PARECE_DATO_PERSONAL = re.compile(
     r"trabajo (en|como|de)|estudio|mi cumpleaños|nac[íi]|tengo \d+ años|mi (esposa|esposo|novia|novio|"
     r"mamá|papá|hermana|hermano|hijo|hija|perro|gato))\b",
     re.IGNORECASE,
+)
+
+
+_ES_PREGUNTA = re.compile(
+    r"[¿?]|^\s*(qu[eé]|d[oó]nde|c[oó]mo|cu[aá]ndo|cu[aá]l|qui[eé]n|por qu[eé]|sabes|recuerdas)\b", re.IGNORECASE
 )
 
 
@@ -153,11 +161,13 @@ def aprender_si_quedo_sin_guardar(texto_usuario: str, herramientas_usadas: list[
     """
     if "recordar_sobre_usuario" in herramientas_usadas or not _PARECE_DATO_PERSONAL.search(texto_usuario):
         return
+    if _ES_PREGUNTA.search(texto_usuario):
+        return  # "¿dónde vive mi novia?" menciona a la novia, pero no cuenta nada nuevo (pasó en pruebas)
 
     def trabajo() -> None:
         try:
             _extraer_y_anotar([f"**Usuario:** {texto_usuario}"], incluir_patrones=False)
-        except (RuntimeError, ValueError, OSError):
+        except (RuntimeError, ValueError, OSError, sqlite3.Error):
             pass
 
     threading.Thread(target=trabajo, daemon=True).start()
@@ -172,7 +182,7 @@ def reflexionar_si_toca() -> None:
         try:
             if debe_reflexionar():
                 reflexionar()
-        except (RuntimeError, ValueError, OSError):
+        except (RuntimeError, ValueError, OSError, sqlite3.Error):
             pass  # la reflexión es un extra; si falla, la conversación sigue igual
         finally:
             _en_curso.release()

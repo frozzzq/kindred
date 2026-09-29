@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, time
 
 from src.obsidian.fechas import extraer_hora
-from src.obsidian.vault_writer import normalizar
+from src.obsidian.texto import normalizar
 
 # Índice 0 = lunes ... 6 = domingo, igual que datetime.weekday().
 DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")

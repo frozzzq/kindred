@@ -1,3 +1,7 @@
+from datetime import datetime
+
+import pytest
+
 from src.obsidian.vault_writer import (
     agregar_pendiente,
     agregar_recurrente,
@@ -6,6 +10,8 @@ from src.obsidian.vault_writer import (
     guardar_contacto,
     recordar_sobre_usuario,
     registrar_interaccion,
+    reprogramar_pendiente,
+    ruta_log,
 )
 
 
@@ -197,7 +203,7 @@ def test_recordar_sobre_usuario_no_duplica_con_otras_palabras(tmp_path, monkeypa
     recordar_sobre_usuario("Se llama Josue")
 
     perfil = (tmp_path / "01-Perfil" / "Yo.md").read_text(encoding="utf-8")
-    assert perfil.count("\n") == 0  # sigue siendo una sola línea
+    assert len(perfil.strip().splitlines()) == 1  # sigue siendo una sola línea
     assert resultado.startswith("Ya estaba")
 
 
@@ -225,6 +231,70 @@ def test_registrar_interaccion(tmp_path, monkeypatch):
 
     registrar_interaccion("hola", "hola, como estas", "ollama")
 
-    contenido = (tmp_path / "00-Sistema" / "Logs-Interacciones.md").read_text(encoding="utf-8")
+    contenido = (tmp_path / "00-Sistema" / "Logs" / f"{datetime.now():%Y-%m}.md").read_text(encoding="utf-8")
     assert "hola, como estas" in contenido
     assert "(ollama)" in contenido
+
+
+def test_el_log_rota_por_mes():
+    assert ruta_log(datetime(2026, 9, 29)) == "00-Sistema/Logs/2026-09.md"
+    assert ruta_log(datetime(2026, 10, 1)) == "00-Sistema/Logs/2026-10.md"
+
+
+def test_escribir_nota_rechaza_rutas_fuera_de_la_boveda(tmp_path, monkeypatch):
+    boveda = tmp_path / "boveda"
+    boveda.mkdir()
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(boveda))
+
+    with pytest.raises(ValueError):
+        escribir_nota("../fuera.md", "x")
+    assert not (tmp_path / "fuera.md").exists()
+
+
+def test_agregar_pendiente_queda_antes_de_la_seccion_relacionado(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    _pendientes(tmp_path, "- [ ] Comprar pan (agregado x)", "", "## Relacionado", "- [[Yo]]")
+
+    agregar_pendiente("Llamar al dentista")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert contenido.index("Llamar al dentista") < contenido.index("## Relacionado")
+
+
+def test_reprogramar_pendiente_cambia_la_fecha_y_conserva_el_resto(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    _pendientes(
+        tmp_path,
+        "- [ ] Entregar el proyecto 📅 2026-10-02 (agregado 2026-09-28 15:47)",
+        "- [ ] Comprar pan (agregado x)",
+    )
+
+    resultado = reprogramar_pendiente("proyecto", "el 5 de octubre a las 9am")
+
+    contenido = (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert "📅 2026-10-05 ⏰ 2026-10-05 09:00 (agregado 2026-09-28 15:47)" in contenido
+    assert "2026-10-02" not in contenido
+    assert "Comprar pan" in contenido
+    assert "reprogramado" in resultado.lower()
+
+
+def test_reprogramar_pendiente_sin_fecha_entendible_no_toca_nada(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    _pendientes(tmp_path, "- [ ] Entregar el proyecto 📅 2026-10-02 (agregado x)")
+
+    resultado = reprogramar_pendiente("proyecto", "cuando se pueda")
+
+    assert "2026-10-02" in (tmp_path / "02-Tareas" / "Pendientes.md").read_text(encoding="utf-8")
+    assert "no entendí" in resultado.lower()
+
+
+def test_guardar_contacto_existente_suma_el_detalle_en_vez_de_duplicar(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    guardar_contacto("Ana", "hermana del usuario")
+
+    resultado = guardar_contacto("ana", "vive en Monterrey")
+
+    contactos = (tmp_path / "01-Perfil" / "Contactos.md").read_text(encoding="utf-8")
+    assert contactos.count("**Ana**") == 1
+    assert "vive en Monterrey" in contactos
+    assert "actualizado" in resultado.lower()

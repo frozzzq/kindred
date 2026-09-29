@@ -22,3 +22,4 @@ class RespuestaMotor:
     error: str = ""
     herramientas_usadas: list[str] = field(default_factory=list)
     resultados_herramientas: list[str] = field(default_factory=list)
+    llamadas_modelo: int = 0  # cuántas veces se llamó al modelo (1 + una por cada vuelta con herramientas)

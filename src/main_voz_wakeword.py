@@ -6,13 +6,12 @@ Reutiliza procesar_comando de src/main.py. Si prefieres el modo manual
 (presionar Enter), usa src/main_voz.py en su lugar — ambos coexisten.
 """
 
-from dotenv import load_dotenv
+import sys
 
 from src.actions.confirmacion import es_afirmativo
 from src.agente.conversacion import Conversacion
-from src.consola import forzar_utf8
+from src.arranque import preparar
 from src.main import procesar_comando
-from src.obsidian.estructura import asegurar_estructura_boveda
 from src.router.intent_router import nombre_motor
 from src.voice.stt import escuchar_comando_automatico
 from src.voice.tts import hablar
@@ -27,14 +26,7 @@ def confirmar_por_voz(descripcion: str) -> bool:
 
 
 def main() -> None:
-    forzar_utf8()
-    # override=True: ver comentario en src/main.py sobre el choque de
-    # OLLAMA_HOST con la variable de entorno del servidor de Ollama.
-    load_dotenv(override=True)
-    try:
-        asegurar_estructura_boveda()
-    except RuntimeError as error:
-        print(f"[aviso] No se pudo preparar la bóveda de Obsidian: {error}")
+    preparar(sys.argv[1:])  # .env, bóveda y --pruebas (ver src/arranque.py)
 
     conversacion = Conversacion()
     # "hey jarvis" es solo la palabra de activación del modelo pre-entrenado de openWakeWord (no

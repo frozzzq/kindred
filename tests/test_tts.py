@@ -172,41 +172,86 @@ def test_elevenlabs_sin_api_key_devuelve_none(monkeypatch, capsys):
     assert "ELEVENLABS_API_KEY" in capsys.readouterr().out
 
 
-# --- síntesis oración por oración (con cola de reproducción) ---
+# --- voz en vivo (síntesis oración por oración, con cola de reproducción) ---
 
 
-def test_sintetizar_oraciones_pone_cada_fragmento_en_la_cola_y_termina_con_el_centinela():
-    cola = queue.Queue()
+def _voz_sin_audio(**argumentos):
+    """Una VozEnVivo cuyo reproductor solo junta lo que le llega, sin tocar la tarjeta de sonido."""
+    reproducido = []
+
+    def reproducir_falso(cola, _medidor, _detener=None):
+        while (fragmento := cola.get()) is not tts._FIN_DE_AUDIO:
+            reproducido.append(fragmento)
+
+    with patch("src.voice.tts._reproducir_secuencia", reproducir_falso):
+        voz = tts.VozEnVivo(**argumentos)
+    return voz, reproducido
+
+
+def test_voz_en_vivo_sintetiza_cada_oracion_en_orden():
     with patch("src.voice.tts._sintetizar_edge_tts", side_effect=[np.array([1.0]), np.array([2.0])]):
-        tts._sintetizar_oraciones(["Hola.", "Adiós."], None, cola)
+        voz, reproducido = _voz_sin_audio()
+        voz.decir("Hola.")
+        voz.decir("Adiós.")
+        voz.terminar()
+        voz.esperar()
 
-    assert np.array_equal(cola.get(), [1.0])
-    assert np.array_equal(cola.get(), [2.0])
-    assert cola.get() is tts._FIN_DE_AUDIO
+    assert [list(f) for f in reproducido] == [[1.0], [2.0]]
 
 
-def test_sintetizar_oraciones_sigue_con_la_siguiente_si_una_oracion_falla_en_ambos_motores():
-    cola = queue.Queue()
+def test_voz_en_vivo_sigue_con_la_siguiente_si_una_oracion_falla_en_ambos_motores():
     with (
         patch("src.voice.tts._sintetizar_edge_tts", side_effect=[None, np.array([9.0])]),
         patch("src.voice.tts._sintetizar_elevenlabs", return_value=None),
     ):
-        tts._sintetizar_oraciones(["falla.", "funciona."], None, cola)
+        voz, reproducido = _voz_sin_audio()
+        voz.decir("falla. funciona.")
+        voz.terminar()
+        voz.esperar()
 
-    assert np.array_equal(cola.get(), [9.0])
-    assert cola.get() is tts._FIN_DE_AUDIO
+    assert [list(f) for f in reproducido] == [[9.0]]
 
 
-def test_sintetizar_oraciones_avisa_si_nada_se_pudo_sintetizar(capsys):
-    cola = queue.Queue()
+def test_voz_en_vivo_avisa_si_nada_se_pudo_sintetizar(capsys):
     with (
         patch("src.voice.tts._sintetizar_edge_tts", return_value=None),
         patch("src.voice.tts._sintetizar_elevenlabs", return_value=None),
     ):
-        tts._sintetizar_oraciones(["hola"], None, cola)
+        voz, reproducido = _voz_sin_audio()
+        voz.decir("hola")
+        voz.terminar()
+        voz.esperar()
 
-    assert cola.get() is tts._FIN_DE_AUDIO
+    assert reproducido == []
     assert "No se pudo sintetizar voz" in capsys.readouterr().out
+
+
+def test_voz_en_vivo_deja_de_sintetizar_si_lo_interrumpen():
+    detener = threading.Event()
+
+    def falso_edge_tts(oracion, _motor):
+        if oracion == "Segunda.":
+            detener.set()  # se interrumpe mientras se sintetiza esta oración
+        return np.array([1.0])
+
+    with patch("src.voice.tts._sintetizar_edge_tts", side_effect=falso_edge_tts):
+        voz, reproducido = _voz_sin_audio(detener=detener)
+        voz.decir("Primera. Segunda. Tercera.")
+        voz.terminar()
+        voz.esperar()
+
+    assert len(reproducido) == 2  # "Tercera." ya no se sintetiza
+
+
+def test_voz_en_vivo_limpia_markdown_antes_de_hablar():
+    dichas = []
+    with patch("src.voice.tts._sintetizar_edge_tts", side_effect=lambda o, m: dichas.append(o) or np.array([1.0])):
+        voz, _ = _voz_sin_audio()
+        voz.decir("**Hola** 😀")
+        voz.terminar()
+        voz.esperar()
+
+    assert dichas == ["Hola"]
 
 
 # --- reproducción en secuencia ---
@@ -289,24 +334,6 @@ def test_reproducir_secuencia_se_corta_al_activar_detener_a_medio_reproducir():
 
     assert len(_SalidaDeAudioFalsa.niveles) <= 2  # se cortó casi de inmediato, no consumió el audio "largo"
     assert medidor.nivel == 0.0
-
-
-def test_sintetizar_oraciones_se_detiene_si_lo_interrumpen():
-    detener = threading.Event()
-
-    def falso_edge_tts(oracion, _motor):
-        if oracion == "Segunda.":
-            detener.set()  # se interrumpe mientras se sintetiza esta oración
-        return np.array([1.0])
-
-    cola = queue.Queue()
-    with patch("src.voice.tts._sintetizar_edge_tts", side_effect=falso_edge_tts):
-        tts._sintetizar_oraciones(["Primera.", "Segunda.", "Tercera."], None, cola, detener)
-
-    fragmentos = []
-    while (item := cola.get()) is not tts._FIN_DE_AUDIO:
-        fragmentos.append(item)
-    assert len(fragmentos) == 2  # "Tercera." ya no se sintetiza: se marcó la interrupción antes de llegar a ella
 
 
 def test_reproducir_secuencia_sin_medidor_no_crashea():

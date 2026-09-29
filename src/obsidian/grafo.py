@@ -6,6 +6,8 @@ Dos tipos de conexión:
 - Carpeta: cada carpeta es un nodo unido a sus notas y a su carpeta padre. No
   existe en Obsidian, pero le da estructura al grafo aunque las notas todavía
   no estén enlazadas entre sí.
+
+Las notas de 00-Sistema (registros, estado) no son parte del "cerebro": no se dibujan.
 """
 
 import re
@@ -13,7 +15,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from urllib.parse import unquote
 
-from src.obsidian.vault_reader import leer_nota, listar_notas, listar_rutas_relativas
+from src.obsidian.estructura import es_de_sistema
+from src.obsidian.vault_reader import leer_nota, listar_notas, listar_rutas_relativas, resolver_nombre
 
 # [[Nota]], [[Nota|alias]], [[Nota#Encabezado]], ![[Nota]] — el destino es lo que va antes de | # ^
 _ENLACE_WIKI = re.compile(r"\[\[([^\]|#^]+)[^\]]*\]\]")
@@ -39,6 +42,25 @@ class Grafo:
     nodos: tuple[Nodo, ...]
     aristas: tuple[Arista, ...]
 
+    @property
+    def total_notas(self) -> int:
+        return sum(1 for nodo in self.nodos if not nodo.es_carpeta)
+
+    @property
+    def total_enlaces(self) -> int:
+        return sum(1 for arista in self.aristas if arista.es_enlace)
+
+    def huerfanas(self) -> list[str]:
+        """Notas sin ningún enlace (ni entrante ni saliente)."""
+        enlazadas = {extremo for arista in self.aristas if arista.es_enlace for extremo in (arista.origen, arista.destino)}
+        return [nodo.id for nodo in self.nodos if not nodo.es_carpeta and nodo.id not in enlazadas]
+
+
+def enlaces_de(contenido: str, rutas: list[str]) -> set[str]:
+    """Rutas de las notas a las que enlaza un contenido (solo las que existen)."""
+    destinos = _ENLACE_WIKI.findall(contenido) + [unquote(d) for d in _ENLACE_MARKDOWN.findall(contenido)]
+    return {resuelto for destino in destinos if (resuelto := resolver_nombre(destino, rutas))}
+
 
 def firma_boveda() -> tuple[tuple[str, int], ...]:
     """Huella barata de la bóveda (rutas + fecha de modificación) para saber si cambió algo."""
@@ -46,7 +68,7 @@ def firma_boveda() -> tuple[tuple[str, int], ...]:
 
 
 def construir_grafo() -> Grafo:
-    rutas = listar_rutas_relativas()
+    rutas = [ruta for ruta in listar_rutas_relativas() if not es_de_sistema(ruta)]
     nodos: dict[str, Nodo] = {}
     aristas: dict[frozenset[str], Arista] = {}
 
@@ -68,26 +90,7 @@ def construir_grafo() -> Grafo:
             hijo = str(carpeta)
 
     for ruta in rutas:
-        contenido = leer_nota(ruta) or ""
-        destinos = _ENLACE_WIKI.findall(contenido) + [unquote(d) for d in _ENLACE_MARKDOWN.findall(contenido)]
-        for destino in destinos:
-            resuelto = _resolver_enlace(destino, rutas)
-            if resuelto:
-                agregar_arista(ruta, resuelto, es_enlace=True)
+        for destino in enlaces_de(leer_nota(ruta) or "", rutas):
+            agregar_arista(ruta, destino, es_enlace=True)
 
     return Grafo(nodos=tuple(nodos.values()), aristas=tuple(aristas.values()))
-
-
-def _resolver_enlace(destino: str, rutas: list[str]) -> str | None:
-    """Como Obsidian: por ruta si la incluye, si no por nombre de archivo (sin distinguir mayúsculas)."""
-    destino = destino.strip().removesuffix(".md").lower()
-    if not destino:
-        return None
-    for ruta in rutas:
-        if ruta.removesuffix(".md").lower() == destino:
-            return ruta
-    nombre = PurePosixPath(destino).name
-    for ruta in rutas:
-        if PurePosixPath(ruta).stem.lower() == nombre:
-            return ruta
-    return None  # imágenes u otros adjuntos, o notas que aún no existen

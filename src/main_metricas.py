@@ -1,15 +1,14 @@
 """Punto de entrada: imprime un reporte de métricas de uso (Fase 5)."""
 
-from dotenv import load_dotenv
+import sys
 
-from src.consola import forzar_utf8
+from src.arranque import preparar
 from src.obsidian.metricas import calcular_metricas
 from src.router.intent_router import MOTOR_GEMINI_FALLO
 
 
 def main() -> None:
-    forzar_utf8()
-    load_dotenv(override=True)
+    preparar(sys.argv[1:])
     metricas = calcular_metricas()
 
     if metricas.total_resueltas == 0:

@@ -1,6 +1,6 @@
 import pytest
 
-from src.obsidian.vault_reader import buscar_en_boveda, leer_nota, listar_notas, resolver_ruta
+from src.obsidian.vault_reader import leer_nota, limpiar_nombre, listar_notas, resolver_nota, resolver_ruta
 
 
 def test_listar_notas_encuentra_md_e_ignora_config_obsidian(tmp_path, monkeypatch):
@@ -30,37 +30,6 @@ def test_leer_nota_inexistente(tmp_path, monkeypatch):
     assert leer_nota("no-existe.md") is None
 
 
-def test_buscar_en_boveda_encuentra_coincidencias(tmp_path, monkeypatch):
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-    (tmp_path / "02-Tareas").mkdir()
-    (tmp_path / "02-Tareas" / "Pendientes.md").write_text(
-        "Comprar leche y pan para el desayuno", encoding="utf-8"
-    )
-    (tmp_path / "04-Conocimiento").mkdir()
-    (tmp_path / "04-Conocimiento" / "Notas.md").write_text(
-        "Apuntes sobre programacion en python", encoding="utf-8"
-    )
-
-    resultados = buscar_en_boveda("necesito comprar leche")
-
-    assert len(resultados) == 1
-    assert resultados[0].ruta_relativa.endswith("Pendientes.md")
-
-
-def test_buscar_en_boveda_sin_bovedas_devuelve_vacio(tmp_path, monkeypatch):
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path / "no-existe"))
-
-    assert buscar_en_boveda("cualquier cosa") == []
-
-
-def test_buscar_en_boveda_ignora_el_log_de_conversaciones(tmp_path, monkeypatch):
-    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-    (tmp_path / "00-Sistema").mkdir()
-    (tmp_path / "00-Sistema" / "Logs-Interacciones.md").write_text("comprar leche comprar leche", encoding="utf-8")
-
-    assert buscar_en_boveda("comprar leche") == []
-
-
 def test_resolver_ruta_rechaza_rutas_fuera_de_la_boveda(tmp_path, monkeypatch):
     boveda = tmp_path / "boveda"
     boveda.mkdir()
@@ -78,3 +47,42 @@ def test_leer_nota_rechaza_rutas_fuera_de_la_boveda(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         leer_nota("../secreto.md")
+
+
+def _nota(tmp_path, ruta, contenido=""):
+    archivo = tmp_path / ruta
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    archivo.write_text(contenido, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "nombre",
+    ["03-Proyectos/Jarvis.md", "03-Proyectos/Jarvis", "Jarvis", "jarvis", "[[Jarvis]]", "[[Jarvis|mi proyecto]]", "Jarvis.md"],
+)
+def test_resolver_nota_acepta_nombre_o_ruta(tmp_path, monkeypatch, nombre):
+    """El modelo a veces da solo el nombre ("Jarvis") en vez de la ruta completa: igual debe encontrarla."""
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    _nota(tmp_path, "03-Proyectos/Jarvis.md")
+
+    assert resolver_nota(nombre) == "03-Proyectos/Jarvis.md"
+
+
+def test_resolver_nota_ignora_acentos_y_tolera_nombres_casi_iguales(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    _nota(tmp_path, "04-Conocimiento/Programación/Node.js.md")
+    _nota(tmp_path, "04-Conocimiento/Programación.md")
+
+    assert resolver_nota("programacion") == "04-Conocimiento/Programación.md"
+    assert resolver_nota("Nodejs") == "04-Conocimiento/Programación/Node.js.md"
+
+
+def test_resolver_nota_no_inventa_si_no_hay_parecida(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    _nota(tmp_path, "03-Proyectos/Jarvis.md")
+
+    assert resolver_nota("Cosa inventada que no existe") is None
+
+
+def test_limpiar_nombre():
+    assert limpiar_nombre("[[Nota#Encabezado|alias]]") == "Nota"
+    assert limpiar_nombre(" carpeta/Nota.md ") == "carpeta/Nota"

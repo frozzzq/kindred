@@ -2,303 +2,111 @@
 
 Asistentes IA para uso personal.
 
-## Jarvis
+## Jarvis: Crimson y Clover
 
-Asistente de voz personal local-first. Ver [CLAUDE.md](CLAUDE.md) para la
-arquitectura completa y el plan de fases.
+Asistente de voz personal, local primero, con dos agentes y una memoria en Obsidian. Ver
+[CLAUDE.md](CLAUDE.md) para la arquitectura completa y el plan de fases, y
+[docs/arquitectura.md](docs/arquitectura.md) para el diagrama.
 
-Estado actual: **Fase 0 + Fase 1 + Fase 2 + Fase 3 (completa, con wake
-word) + Fase 4 (casi completa) + Fase 5 (parcial) + Fase 6 + Fase 7
-(parcial) + UI de escritorio** (MVP por CLI de texto con Ollama/Gemini,
-integración con una bóveda de Obsidian como memoria, voz con Whisper local
-+ edge-tts/ElevenLabs — push-to-talk o manos libres con wake word "hey
-jarvis" —, control del sistema: abrir cualquier app instalada, páginas y
-carpetas, clicks y escritura automática, y búsqueda web; todas las
-acciones pasan por un registro de herramientas con permisos, confirmación
-para lo irreversible, modo seguro y auditoría; recordatorios con fecha/hora
-y tareas recurrentes avisados por un núcleo en segundo plano —
-notificación de Windows + voz, briefing matutino y de cierre del día,
-autoarranque opcional—; métricas de uso, y una UI de escritorio con Flet
-donde el agente se representa como un grafo 3D holográfico de tu bóveda de
-Obsidian). Sin correo/redes sociales todavía: ver el roadmap en `CLAUDE.md`.
+- **Crimson**: Ollama local (`qwen3:8b`) en la GPU. Cálida, mexicana, con chispa.
+- **Clover**: Gemini Flash, para tareas complejas y búsqueda web. Sereno, preciso, humor seco.
+- **Memoria**: tu bóveda de Obsidian, con un índice semántico que les da las notas relevantes en
+  cada mensaje, conexiones automáticas entre notas del mismo tema y un diario del día.
+- **Voz**: faster-whisper (entender) + edge-tts (hablar), en vivo oración por oración.
+- **UI de escritorio** (Flet) con el agente como grafo 3D de tu bóveda, chat, panel de la
+  bóveda, métricas de uso y ajustes.
 
-### Lanzadores rápidos
-
-Para no tener que abrir consola cada vez: `Jarvis-UI.bat`, `Jarvis-Texto.bat`,
-`Jarvis-Voz.bat`, `Jarvis-VozManosLibres.bat`, `Jarvis-Metricas.bat` y
-`Jarvis-Nucleo.bat` (Fase 7, recordatorios) en la raíz del repo activan el
-entorno y corren el modo correspondiente con doble clic. Hay accesos
-directos en el escritorio a los primeros cinco.
-
-**Modelo de Ollama:** usa `qwen3:8b` por defecto (mejor razonamiento que
-`mistral:7b`, confirmado en pruebas reales) con `num_ctx=8192` en las
-llamadas (`src/engines/ollama_client.py`) — Ollama usa 4096 tokens de
-contexto por defecto aunque el modelo soporte más, y con el contexto de
-Obsidian + búsqueda web que se le inyecta, se saturaba fácil. Cambia
-`OLLAMA_MODEL` en tu `.env` si prefieres otro (ej. `mistral-nemo` es
-fuerte específicamente en español).
-
-**Velocidad de Ollama:** tres ajustes en `src/engines/ollama_client.py` y
-`src/main.py`, confirmados con mediciones reales:
-- `think: false` — Qwen3 (y otros modelos "razonadores") generan un modo
-  de pensamiento largo por defecto que nunca mostramos; desactivarlo bajó
-  una respuesta trivial de ~5.8s a ~0.6s.
-- `keep_alive: "30m"` — sin esto, Ollama descarga el modelo de la VRAM
-  tras 5 minutos sin uso (default del servidor) y el siguiente mensaje
-  paga la recarga completa (~5-6GB desde disco): **26.5s medidos** en una
-  recarga real, contra **0.9-2.3s** con el modelo ya caliente. Esto era la
-  causa principal de la lentitud "de cada mensaje", no el hardware.
-- `INSTRUCCION_BREVEDAD` — se le pide al modelo responder en 1-3 oraciones
-  salvo que se pida detalle, lo que además de generarse más rápido reduce
-  el texto que ElevenLabs tiene que sintetizar (TTS bajó de ~5-10s a
-  ~1.5s en pruebas, sin necesitar streaming).
-
-**Micrófono débil:** si tu micrófono entrega poca señal incluso al
-volumen máximo de Windows, la voz amplifica la señal capturada por
-software (`GANANCIA_MICROFONO` en `.env`, default 3.0x) antes de mandarla
-a Whisper y al detector de wake word — afecta tanto STT como wake word.
-
-### Setup
+### Empezar
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate      # Windows
-pip install -r requirements-lock.txt      # instalación reproducible (recomendado)
-# O, para desarrollo (con pytest):
-# pip install -r requirements-dev.txt
-copy .env.example .env      # y completar con tus valores reales
+.venv\Scripts\activate
+pip install -r requirements-lock.txt     # o requirements-dev.txt para desarrollo (trae pytest)
+copy .env.example .env                   # y completa tus valores
+ollama pull qwen3:8b
+ollama pull qwen3-embedding:0.6b         # memoria semántica (sin él, busca solo por palabras)
 ```
 
-**Nota:** `requirements-lock.txt` fija las versiones exactas de todas las dependencias para garantizar
-reproductibilidad. `requirements-dev.txt` incluye pytest y se usa para desarrollo local. Regenerar el
-lockfile tras cambios en `requirements.txt` o `requirements-dev.txt`:
-```bash
-.venv\Scripts\python.exe -m pip freeze > requirements-lock.txt
-pytest  # verificar que todo sigue funcionando
-```
+Después, **todo se abre con `Jarvis.bat`** (doble clic): un menú con
 
-### Uso
+| Opción | Qué hace |
+|---|---|
+| `ui` | La app: voz, chat, bóveda, uso y ajustes |
+| `texto`, `voz`, `manos-libres` | Los modos de consola |
+| `nucleo` | Recordatorios, briefing, diario y orden de la bóveda en esta ventana |
+| `pruebas` / `pruebas-nueva` | La app con una **bóveda de pruebas** (no toca la tuya) |
+| `evaluar` | Pone a prueba a los agentes con escenarios reales y mide tiempos |
+| `diagnostico` | Revisa Ollama, modelos, Gemini, bóveda, índice, micrófono, voz y núcleo |
+| `tests` | Los tests automáticos |
+| `indexar`, `metricas` | Reindexar la bóveda; métricas en consola |
 
-CLI de texto:
-```bash
-python -m src.main
-```
+También directo: `Jarvis.bat ui --seccion uso`, `Jarvis.bat texto --pruebas`.
 
-CLI de voz (push-to-talk, requiere micrófono y `ELEVENLABS_API_KEY` con
-créditos disponibles):
-```bash
-python -m src.main_voz
-```
-Presiona Enter para empezar a hablar y Enter de nuevo para terminar de
-grabar. Si ElevenLabs falla (sin créditos, sin conexión), la respuesta se
-muestra como texto en vez de audio.
+### Qué pueden hacer
 
-CLI de voz manos libres, con wake word (di **"hey jarvis"** para activar,
-sin presionar nada — graba automáticamente hasta detectar silencio):
-```bash
-python -m src.main_voz_wakeword
-```
-Usa [openWakeWord](https://github.com/dscripka/openWakeWord) (100% local,
-sin costo, modelo `hey_jarvis` pre-entrenado). La primera vez descarga los
-modelos (~5 MB). Requiere el mismo micrófono/ElevenLabs que el modo
-push-to-talk.
+**Responder sobre tus notas sin tener que buscarlas.** En cada mensaje reciben la hora, tus
+pendientes agrupados por urgencia (vencidos, hoy, próximos) y las notas de tu bóveda que tratan
+lo que preguntas, encontradas por significado: "¿cómo se llamaba el framework que apunté para
+hacer APIs?" encuentra tu nota de Express aunque no digas "Express". Si no tienes nada de eso,
+lo dicen en vez de inventar.
 
-En todos los casos, un comando simple va a Ollama y uno complejo (p. ej.
-"busca en internet...") va a Gemini, con fallback automático a Ollama si falla.
+**Gestionar la bóveda completa**: crear notas (caen solas en la carpeta de su tema y se agregan
+al índice del área), agregar a una nota, editarla (con respaldo de la versión anterior), moverla
+o renombrarla (actualiza los enlaces), conectar y desconectar notas, sugerir conexiones y
+eliminar (a la papelera, con confirmación). Pendientes con fecha en lenguaje natural,
+reprogramarlos, completarlos, tareas recurrentes, perfil y contactos.
 
-**Nombres de personalidad:** en consola (y ya sea texto o voz), Ollama se
-muestra como **Crimson** y Gemini como **Clover** (ej. "Crimson: ..."). No
-hay un tercer agente: las acciones directas del sistema (abrir apps, modo
-seguro...) no las contesta ningún motor de IA, así que se le atribuyen a
-**Crimson**, el agente por defecto (en la UI, al agente que tengas
-seleccionado). Internamente siguen siendo `ollama`/`gemini`/`accion`, así
-que no afecta logs, `.env` ni tests. Se define en `NOMBRES_MOTOR`
-(`src/router/intent_router.py`).
+**Conectar notas de verdad.** Dos notas se enlazan si una menciona a la otra por su título (como
+las "menciones sin enlazar" de Obsidian) o si comparten un fragmento muy parecido (similitud
+semántica ≥ 0.50, calibrada con el modelo real: Node.js ↔ Express 0.71, Jarvis ↔ Ollama 0.57,
+pero Jarvis ↔ Express 0.42 no). Nunca con notas del sistema ni listas de tareas. El núcleo
+conecta también las notas que escribes a mano en Obsidian.
 
-**Personalidad, memoria y bóveda (`src/agente/`, `src/obsidian/herramientas.py`):**
-- Cada agente tiene un prompt de sistema con su personalidad
-  (`src/agente/personalidad.py`): **Crimson** es confiable, alegre,
-  calculadora y diplomática; **Clover** es igual de inteligente pero seria,
-  fría, orientada a cumplir el objetivo, ordenada y transparente. Incluye la
-  fecha, el mapa de la bóveda y tu perfil (`Yo.md`, `Patrones.md`).
-- Recuerda los últimos 5 turnos de la conversación (`src/agente/conversacion.py`);
-  en la UI, Voz y Chat comparten la misma conversación.
-- Crimson usa la bóveda con **herramientas** (tool calling de Ollama): lee
-  notas completas, busca, agrega y completa pendientes, guarda datos tuyos y
-  contactos. Si una petición es ambigua, pregunta antes de actuar.
-- Salvaguardas contra un modelo de 8B que a veces falla: si dice que cambió
-  algo sin haber llamado a la herramienta, se le pide hacerlo de verdad (y si
-  insiste, admite que no pudo); si escribe la llamada como texto JSON, se
-  ejecuta igual; se quita la muletilla "¿necesitas algo más?" del final.
-- **Reflexión** (`src/agente/reflexion.py`): cada 10 interacciones, en
-  segundo plano, revisa lo nuevo del log y anota en `Yo.md` y `Patrones.md`
-  lo que aprendió de ti (sin duplicar, y exigiendo 3+ interacciones para un
-  patrón). El contador vive en `00-Sistema/Configuracion.md`.
-- El log de conversaciones ya no se usa como fuente de búsqueda (contaminaba
-  las respuestas con charlas viejas), y los pendientes ya no se guardan por
-  palabras clave.
-- Clover (Gemini) recibe su personalidad, tu perfil y tus pendientes en el
-  prompt, pero todavía no tiene herramientas.
-- La voz ya no lee markdown, viñetas ni emojis (`limpiar_para_voz` en `src/voice/tts.py`).
+**Ser proactivos.** Saludo del día al abrir la app con lo que tienes pendiente, aviso de lo
+vencido al empezar una conversación, recordatorios a la hora, briefing de la mañana, cierre del
+día y un diario automático (`06-Diario/`), que después puedes consultar ("¿qué hice ayer?").
 
-**Síntesis de voz (TTS):** primero se intenta con **edge-tts** (`src/voice/tts.py`) —
-gratis, sin API key ni límite conocido, reutiliza el servicio de voz de
-Microsoft Edge. Si falla (no es una API oficial: puede dejar de funcionar
-sin aviso si Microsoft cambia algo), cae automáticamente a **ElevenLabs**
-como respaldo de pago. Cada motor puede tener su propia voz en cada
-servicio — `EDGE_TTS_VOICE_OLLAMA`/`EDGE_TTS_VOICE_GEMINI` (default:
-`es-MX-JorgeNeural`/`es-MX-DaliaNeural`; lista completa con
-`edge-tts --list-voices`) y `ELEVENLABS_VOICE_ID_OLLAMA`/`ELEVENLABS_VOICE_ID_GEMINI`
-(cada una debe ser una voz que ya esté en tu biblioteca "My Voices"; las
-cuentas gratuitas solo pueden usar voces `premade`, no las de la Voice
-Library, vía API). Si no se configura una específica, cada servicio cae a
-su variable genérica (`EDGE_TTS_VOICE`/`ELEVENLABS_VOICE_ID`).
+**Actuar en tu PC**: abrir cualquier app instalada ("abre fotoshop"), páginas y carpetas; hacer
+click y escribir en la ventana activa. Todo pasa por un registro de herramientas con permisos:
+lo irreversible pide confirmación, "modo seguro" bloquea las acciones y todo queda en
+`00-Sistema/Registro-Acciones.md`.
 
-**Herramientas con permisos (Fase 6):** todo lo que el agente hace en tu
-PC o en tu bóveda pasa por un registro único (`src/herramientas/`): cada
-herramienta declara su riesgo (lectura, bajo, alto, crítico), las de riesgo
-alto piden confirmación, y cada acción queda anotada en
-`00-Sistema/Registro-Acciones.md`. **Crimson y Clover usan las mismas
-herramientas** (Clover ya tiene function calling), así que puedes pedir
-varias cosas en un turno: "abre spotify y dime qué pendientes tengo". Para
-pedidos de varios pasos Clover es más confiable: Crimson (modelo local de
-8B) a veces hace solo el primero. Por lo mismo, a Crimson solo se le dan
-las herramientas de abrir apps/páginas/carpetas cuando el mensaje pide
-abrir algo; con ellas de más dejaba de consultar la bóveda.
-Di **"modo seguro"** para que solo consulte sin hacer acciones, y **"sal del
-modo seguro"** para volver.
+### Velocidad
 
-**Abrir cualquier app, página o carpeta:** "abre fotoshop" abre la app
-instalada que más se parezca (usa el índice del menú Inicio de Windows,
-`src/actions/aplicaciones.py`; se renueva cada día o cuando no encuentra
-algo). Si hay varias parecidas, pregunta cuál. Nombres propios tuyos en
-`00-Sistema/Alias-Aplicaciones.md` (una línea por alias: `- el editor:
-Visual Studio Code`). "abre youtube.com" abre la página en una pestaña
-nueva y "abre la carpeta descargas" abre la carpeta, solo dentro de
-`CARPETAS_PERMITIDAS`. Abrir no pide confirmación. Un comando tipo "busca
-en internet..." activa el grounding con Google Search de Gemini. Un comando
-tipo "ciérrate" o "cierra la aplicación" termina el programa (o cierra la
-ventana en la UI), con confirmación.
+Medido en la PC (RX 7600, ROCm): Crimson dice su primera oración en ~1-2 s en preguntas sobre
+tus notas. Lo que más pesa:
+- **Streaming**: la voz empieza con la primera oración mientras el resto se genera.
+- **Contexto antes que herramientas**: las notas relevantes ya vienen en el mensaje, sin una
+  vuelta extra del modelo.
+- **Caché de Ollama**: el prompt de sistema no cambia entre turnos (la hora va en el mensaje);
+  procesarlo en frío costaba ~1.7 s y desde caché ~0.06 s.
+- **Prompt compacto**: en esta GPU la generación baja de 38 a 13 tokens/s al pasar de 150 a
+  4000 tokens de contexto, así que reglas y herramientas están escritas cortas, y a Crimson solo
+  se le dan los grupos de herramientas que el mensaje pide.
+- **Precalentar**: la app carga el modelo al abrir y el keep-alive es de 3 h (una recarga cuesta
+  ~35 s).
+- **Acuse inmediato**: si le pides una acción ("crea una nota..."), dice "Va, dame un segundito"
+  al instante en vez de quedarse callada mientras escribe la nota.
 
-**Clicks y escritura automática:** "haz click en Guardar" busca un control
-(botón, casilla, pestaña...) con ese texto visible en la **ventana
-activa** — usa la API de accesibilidad de Windows vía `pywinauto`
-(`src/actions/system_control.py`), no coordenadas de píxel, así que no
-depende de la resolución ni de dónde esté la ventana. Funciona bien en
-apps nativas de Windows (Explorador, Notepad, Office, la mayoría de
-programas de escritorio); en apps con widgets dibujados a mano (ej.
-Tkinter) o algunas apps web, los controles pueden no tener nombre
-accesible y no encontrarse — se avisa en vez de fallar en silencio. "escribe
-esto..." pega el texto (vía portapapeles, para no depender de escapar
-caracteres especiales del texto dictado) donde esté el foco en ese
-momento, y restaura el portapapeles anterior al terminar.
+### Voz y personalidad
 
-**Toda acción irreversible pide confirmación explícita antes de
-ejecutarse** — por texto en el CLI de texto, por voz ("di sí o no") en el
-CLI de voz: cerrar la aplicación y hacer click en un control cuyo texto
-sugiera algo irreversible (eliminar, enviar, comprar, pagar,
-desinstalar...). Abrir apps, escribir texto y hacer click en controles
-neutros (Guardar, Aceptar, Siguiente...) se ejecutan directo, sin preguntar.
+Las voces se eligen en **Ajustes** (con botón para escucharlas) y la velocidad de cada una. Por
+defecto: Dalia (Crimson) y Jorge (Clover), de México. Pronuncian el español nativo y los
+términos en inglés se corrigen con un diccionario (Node.js ya no suena "nota jazz"). Las voces
+"multilingües" (las de Copilot) son más expresivas, pero leen con acento en inglés las frases
+cortas en español ("¡Órale, Josué!"). Por eso quedan como opción experimental.
 
-**Búsqueda web auxiliar para Ollama:** Ollama no tiene acceso nativo a
-internet (a diferencia de Gemini). Cuando un comando de búsqueda termina
-respondiéndolo Ollama (router lo eligió, o Gemini falló y cayó aquí como
-fallback — el caso típico sin facturación configurada en Gemini), se le
-inyectan resultados reales de DuckDuckGo (`src/actions/busqueda_web.py`,
-sin API key ni costo) como contexto adicional.
+### Pruebas
 
-**Recordatorios y proactividad (Fase 7):** "recuérdame mañana a las 6pm que llame al doctor" guarda
-el pendiente con fecha y hora (`src/obsidian/fechas.py`, lenguaje natural en español); "el viernes"
-sin hora queda como fecha de referencia (sale en el briefing), no dispara un aviso puntual — y una
-hora ambigua como "a las 8" sin am/pm no se adivina, para no sonar 12 horas antes o después de lo
-que quisiste decir. "tomar medicina, diario a las 9pm" o "sacar la basura los lunes y jueves a las
-8am" quedan en `02-Tareas/Recurrentes.md`.
+- `Jarvis.bat tests`: la suite automática (todo se prueba con Ollama, Gemini y audio simulados).
+- `Jarvis.bat evaluar`: escenarios reales contra los modelos reales sobre una bóveda de ejemplo
+  (preguntas sobre notas, crear, conectar, completar, reprogramar...), con aciertos y tiempos.
+- `Jarvis.bat pruebas`: la app completa con la bóveda de pruebas (`%LOCALAPPDATA%\kindred\boveda-pruebas`).
+- Guía para probar a mano: [docs/pruebas-manuales.md](docs/pruebas-manuales.md).
 
-Todo esto lo vigila un proceso aparte, el **núcleo** (`src/nucleo/`, `Jarvis-Nucleo.bat`), que corre
-independiente de si tienes la UI, la voz o el CLI abiertos: cada 30 segundos revisa si algún
-recordatorio ya venció o si toca el briefing, y avisa con una notificación de Windows y en voz alta
-(nunca se repite el mismo aviso, ni si reinicias el proceso). `HORA_BRIEFING`/`HORA_CIERRE` en tu
-`.env` disparan un resumen de la mañana y de cierre del día con tus pendientes, vencidos y
-recurrentes de hoy (lo redacta Crimson); `HORARIO_SILENCIO` (ej. `23:00-07:00`) retrasa cualquier
-aviso hasta que termine, en vez de mandarlo a media noche. `00-Sistema/HEARTBEAT.md` se actualiza
-cada vuelta, para que puedas ver que sigue vivo.
+### Dónde queda cada cosa
 
-Para que el núcleo arranque solo al iniciar sesión en Windows (sin tener que abrir el `.bat` a
-mano), pídeselo al agente o corre:
-```bash
-python -c "from src.nucleo.autoarranque import registrar_tarea_programada as r; print(r())"
-```
-Esto registra una tarea en el Programador de tareas de Windows — es un cambio persistente del
-sistema, así que no se activa solo. Para quitarlo, usa `quitar_tarea_programada()` del mismo módulo.
-
-**Métricas de uso (Fase 5):**
-```bash
-python -m src.main_metricas
-```
-Lee el log de interacciones ya guardado en la bóveda (`00-Sistema/Logs-Interacciones.md`)
-y reporta qué % de las respuestas resolvió cada motor, más la tasa de
-éxito real de Gemini (cuenta también sus fallos, no solo cuando cae a
-Ollama) — útil para decidir si vale la pena ajustar las palabras clave del
-router según el uso real.
-
-**UI de escritorio:**
-```bash
-python -m src.main_ui
-```
-Ventana con [Flet](https://flet.dev) (renderiza con Flutter, sin HTML/JS
-ni servidor separado), con dos apartados en la barra inferior:
-
-- **Voz:** el agente aparece como el **grafo 3D de tu bóveda de Obsidian**
-  (`src/ui/grafo3d.py`): cada nota es un nodo, los `[[enlaces]]` son líneas
-  brillantes y cada carpeta es un nodo central unido a sus notas con líneas
-  tenues (para que haya estructura aunque las notas aún no se enlacen).
-  - Gira 360° lentamente (una vuelta cada 40 s) con perspectiva: lo lejano
-    se ve más pequeño y tenue, y solo se rotulan las notas del frente.
-  - Toma el color del agente (Crimson carmesí, Clover violeta) con
-    transición suave; al responder usa el color de quien realmente habló.
-  - **Brilla según el volumen de la voz** del agente, no solo encendido/
-    apagado: la voz se reproduce con `sounddevice` y se mide el volumen de
-    cada fragmento mientras suena (`MedidorDeVolumen` en `src/voice/tts.py`).
-  - **Se actualiza solo:** cada 2 s revisa si cambió alguna nota (nueva,
-    editada o borrada) y rehace el grafo sin mover los nodos que ya estaban;
-    los nuevos aparecen junto a sus vecinos (`src/obsidian/grafo.py`).
-  - **Activación por nombre** (interruptor, encendido por defecto): di
-    "Crimson" o "Clover" (solo o seguido de lo que quieres, ej.
-    "Crimson, ¿qué pendientes tengo?"). Eso abre una **ventana de
-    conversación de 1 minuto**: mientras sigas hablando no hace falta
-    repetir el nombre, y cada frase reinicia el minuto. Tras un minuto en
-    silencio hay que volver a llamarlo. Decir otro nombre le pasa la
-    palabra a ese agente. El grafo brilla un poco más mientras la ventana
-    está abierta, y el estado muestra los segundos que quedan.
-  - El nombre lo detecta Whisper (escucha continua + tolerancia a errores
-    de transcripción como "Grimson"/"Cloba"), así que usa algo de CPU y
-    puede activarse si mencionas el nombre en una plática.
-  - **Interrumpir al agente:** mientras piensa o habla, se le puede cortar
-    y decirle otra cosa — tocando el micrófono (sin riesgo, siempre
-    funciona) o **diciendo lo que sea, sin necesidad de repetir su
-    nombre**. La escucha sigue activa durante toda la respuesta para que
-    esto funcione, con el costo de que puede "oír" su propio eco por las
-    bocinas: como defensa (sin cancelación de eco de hardware, la única
-    disponible), se compara lo detectado contra lo que el agente está
-    diciendo en ese instante (`_texto_hablando` en `src/ui/app.py`) — si se
-    parece demasiado, se asume que es su propio eco y se ignora. Funciona
-    bien si el eco captado es la frase completa o media frase, pero un eco
-    muy fragmentado (2-3 palabras sueltas) podría no reconocerse como tal y
-    autointerrumpirlo — limitación real de esta heurística, no un bug.
-  - Las confirmaciones (abrir apps, cerrar la aplicación) se responden por
-    voz: "sí" o "no".
-  - El micrófono manual sigue disponible: tocar para empezar, tocar para
-    terminar (y también interrumpe si se toca mientras el agente está
-    ocupado).
-- **Chat:** conversación por texto (incluye también lo dicho por voz).
-
-Arriba se elige el agente a mano (o diciendo su nombre): **Crimson**
-siempre usa Ollama y **Clover** siempre usa Gemini (con fallback a Ollama
-si falla). Las acciones del sistema (abrir apps) se le atribuyen al
-agente que tengas elegido en ese momento.
-
-### Tests
-
-```bash
-pytest
-```
+- Bóveda: `OBSIDIAN_VAULT_PATH` (ver estructura en CLAUDE.md).
+- Estado técnico, índice, ajustes, respaldos y log del núcleo: `%LOCALAPPDATA%\kindred\`.
+- `requirements-lock.txt` fija las versiones; regenerarlo tras cambiar dependencias:
+  `.venv\Scripts\python.exe -m pip freeze > requirements-lock.txt`.

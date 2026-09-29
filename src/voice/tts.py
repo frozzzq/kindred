@@ -26,14 +26,10 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper.audio import decode_audio
 
+from src import ajustes
 from src.router.intent_router import MOTOR_GEMINI, MOTOR_OLLAMA
 
 # --- edge-tts ---
-VOZ_EDGE_POR_DEFECTO = "es-MX-JorgeNeural"
-VARIABLE_VOZ_EDGE_POR_MOTOR = {
-    MOTOR_OLLAMA: "EDGE_TTS_VOICE_OLLAMA",
-    MOTOR_GEMINI: "EDGE_TTS_VOICE_GEMINI",
-}
 EDGE_TTS_CONNECT_TIMEOUT = 10
 EDGE_TTS_RECEIVE_TIMEOUT = 30
 
@@ -67,6 +63,35 @@ def limpiar_para_voz(texto: str) -> str:
     return re.sub(r"\s+", " ", texto).strip()
 
 
+# Las voces en español leen los términos técnicos en inglés letra por letra o con fonética española
+# ("Node.js" salía como "Nelga J.as", comprobado transcribiendo el audio con Whisper). Se les escribe
+# como suenan. Las voces multilingües los pronuncian bien solas, así que a ellas no se les aplica.
+_PRONUNCIACION_ES = (
+    (re.compile(r"\bnode\.?js\b", re.IGNORECASE), "noud yei es"),
+    (re.compile(r"\bjavascript\b", re.IGNORECASE), "yava script"),
+    (re.compile(r"\btypescript\b", re.IGNORECASE), "taip script"),
+    (re.compile(r"\bgithub\b", re.IGNORECASE), "guit jab"),
+    (re.compile(r"\bgit\b", re.IGNORECASE), "guit"),
+    (re.compile(r"\bnpm\b", re.IGNORECASE), "en pe eme"),
+    (re.compile(r"\bjson\b", re.IGNORECASE), "yéison"),
+    (re.compile(r"\bpython\b", re.IGNORECASE), "páiton"),
+    (re.compile(r"\byoutube\b", re.IGNORECASE), "yutub"),
+    (re.compile(r"\bwhatsapp\b", re.IGNORECASE), "guatsap"),
+    (re.compile(r"\bspotify\b", re.IGNORECASE), "espotifái"),
+    (re.compile(r"\bjarvis\b", re.IGNORECASE), "yarvis"),
+    (re.compile(r"\bfrontend\b", re.IGNORECASE), "front end"),
+    (re.compile(r"\bbackend\b", re.IGNORECASE), "bak end"),
+)
+
+
+def pronunciable(texto: str, voz: str) -> str:
+    if "Multilingual" in voz:
+        return texto
+    for patron, como_suena in _PRONUNCIACION_ES:
+        texto = patron.sub(como_suena, texto)
+    return texto
+
+
 def _partir_en_oraciones(texto: str) -> list[str]:
     """Divide en oraciones: la primera puede empezar a sonar sin esperar el resto de la respuesta."""
     partes = [p for p in _LIMITE_ORACION.split(texto) if p.strip()]
@@ -98,6 +123,63 @@ class MedidorDeVolumen:
 _FIN_DE_AUDIO = object()
 
 
+_FIN_DE_ORACIONES = object()
+
+
+class VozEnVivo:
+    """Habla oraciones conforme van llegando: mientras suena una, se sintetiza la siguiente.
+
+    Uso: decir() cada oración (aunque el modelo siga generando), terminar() cuando no vienen más,
+    y esperar() hasta que acabe de sonar. `detener` corta todo casi de inmediato (interrupción).
+    """
+
+    def __init__(
+        self,
+        motor: str | None = None,
+        medidor: MedidorDeVolumen | None = None,
+        detener: threading.Event | None = None,
+    ) -> None:
+        self._motor = motor
+        self._detener = detener
+        self._oraciones: queue.Queue = queue.Queue()
+        self._audio: queue.Queue = queue.Queue()
+        self._dicho: list[str] = []
+        self._sintetizador = threading.Thread(target=self._sintetizar, daemon=True)
+        self._reproductor = threading.Thread(target=_reproducir_secuencia, args=(self._audio, medidor, detener), daemon=True)
+        self._sintetizador.start()
+        self._reproductor.start()
+
+    def decir(self, texto: str) -> None:
+        for oracion in _partir_en_oraciones(limpiar_para_voz(texto)):
+            if oracion.strip():
+                self._oraciones.put(oracion)
+
+    def terminar(self) -> None:
+        self._oraciones.put(_FIN_DE_ORACIONES)
+
+    def esperar(self) -> None:
+        self._reproductor.join()
+
+    def _sintetizar(self) -> None:
+        hubo_audio = False
+        while True:
+            oracion = self._oraciones.get()
+            if oracion is _FIN_DE_ORACIONES:
+                break
+            if self._detener is not None and self._detener.is_set():
+                continue  # lo interrumpieron: se descarta lo que ya no se va a decir
+            self._dicho.append(oracion)
+            audio = _sintetizar_edge_tts(oracion, self._motor)
+            if audio is None:
+                audio = _sintetizar_elevenlabs(oracion, self._motor)
+            if audio is not None:
+                self._audio.put(audio)
+                hubo_audio = True
+        if self._dicho and not hubo_audio:
+            print(f"[aviso] No se pudo sintetizar voz (edge-tts y ElevenLabs fallaron):\n{' '.join(self._dicho)}")
+        self._audio.put(_FIN_DE_AUDIO)
+
+
 def hablar(
     texto: str,
     motor: str | None = None,
@@ -106,49 +188,41 @@ def hablar(
 ) -> None:
     """Convierte texto a voz y lo reproduce, oración por oración.
 
-    Si se indica `motor` ("ollama"/"gemini"), usa la voz configurada para ese
-    motor en cada servicio (primero edge-tts, con ElevenLabs como respaldo
-    por oración). Si ambos fallan para toda la respuesta, no crashea: avisa
-    por consola y muestra el texto para que la conversación continúe. Con
-    `medidor`, va publicando ahí el volumen de lo que suena.
-
-    `detener` permite interrumpir a medio hablar (ej. si lo llamaron de
-    nuevo por su nombre): al activarse ese evento, se corta la reproducción
-    y se deja de sintetizar lo que faltaba, casi de inmediato.
+    Si se indica `motor` ("ollama"/"gemini"), usa la voz de ese agente (ver src/ajustes.py):
+    edge-tts, con ElevenLabs como respaldo por oración. Si ambos fallan, no crashea: avisa por
+    consola. Con `medidor`, va publicando ahí el volumen de lo que suena. `detener` interrumpe a
+    medio hablar.
     """
-    texto = limpiar_para_voz(texto)
-    if not texto:
+    if not limpiar_para_voz(texto):
         return
+    voz = VozEnVivo(motor, medidor, detener)
+    voz.decir(texto)
+    voz.terminar()
+    voz.esperar()
 
-    oraciones = _partir_en_oraciones(texto)
+
+def probar_voz(voz: str, texto: str, velocidad: int = 0, medidor: MedidorDeVolumen | None = None) -> bool:
+    """Reproduce una frase con una voz concreta (para elegir voz en los ajustes). False si falló."""
+    try:
+        audio = asyncio.run(_pedir_audio_edge_tts(pronunciable(limpiar_para_voz(texto), voz), voz, f"{velocidad:+d}%"))
+    except Exception as error:  # noqa: BLE001 - una prueba fallida solo se informa
+        print(f"[aviso] No se pudo probar la voz {voz}: {error}")
+        return False
     fragmentos: queue.Queue = queue.Queue()
-    hilo = threading.Thread(target=_sintetizar_oraciones, args=(oraciones, motor, fragmentos, detener), daemon=True)
-    hilo.start()
-    _reproducir_secuencia(fragmentos, medidor, detener)
-
-
-def _sintetizar_oraciones(
-    oraciones: list[str], motor: str | None, fragmentos: queue.Queue, detener: threading.Event | None = None
-) -> None:
-    """Sintetiza cada oración (edge-tts, con ElevenLabs de respaldo) y la va poniendo en la cola."""
-    hubo_audio = False
-    for oracion in oraciones:
-        if detener is not None and detener.is_set():
-            break  # lo interrumpieron: no tiene caso seguir sintetizando lo que ya no se va a decir
-        audio = _sintetizar_edge_tts(oracion, motor)
-        if audio is None:
-            audio = _sintetizar_elevenlabs(oracion, motor)
-        if audio is not None:
-            fragmentos.put(audio)
-            hubo_audio = True
-    if not hubo_audio:
-        print(f"[aviso] No se pudo sintetizar voz (edge-tts y ElevenLabs fallaron), mostrando texto en su lugar:\n{' '.join(oraciones)}")
+    fragmentos.put(audio)
     fragmentos.put(_FIN_DE_AUDIO)
+    _reproducir_secuencia(fragmentos, medidor)
+    return True
 
 
-async def _pedir_audio_edge_tts(texto: str, voz: str) -> np.ndarray:
+def _velocidad(motor: str | None) -> str:
+    porcentaje = ajustes.velocidad_de(motor) if motor in (MOTOR_OLLAMA, MOTOR_GEMINI) else 0
+    return f"{porcentaje:+d}%"
+
+
+async def _pedir_audio_edge_tts(texto: str, voz: str, velocidad: str = "+0%") -> np.ndarray:
     comunicador = edge_tts.Communicate(
-        texto, voz, connect_timeout=EDGE_TTS_CONNECT_TIMEOUT, receive_timeout=EDGE_TTS_RECEIVE_TIMEOUT
+        texto, voz, rate=velocidad, connect_timeout=EDGE_TTS_CONNECT_TIMEOUT, receive_timeout=EDGE_TTS_RECEIVE_TIMEOUT
     )
     audio = bytearray()
     async for fragmento in comunicador.stream():
@@ -159,11 +233,11 @@ async def _pedir_audio_edge_tts(texto: str, voz: str) -> np.ndarray:
     return decode_audio(io.BytesIO(bytes(audio)), sampling_rate=TASA_REPRODUCCION)
 
 
-def _sintetizar_edge_tts(texto: str, motor: str | None) -> np.ndarray | None:
+def _sintetizar_edge_tts(texto: str, motor: str | None, voz: str | None = None) -> np.ndarray | None:
     """Intenta sintetizar con edge-tts. None si falla (no es una API oficial: puede cambiar sin aviso)."""
-    voz = _elegir_voz(motor, VARIABLE_VOZ_EDGE_POR_MOTOR, "EDGE_TTS_VOICE", VOZ_EDGE_POR_DEFECTO)
+    voz = voz or ajustes.voz_de(motor or MOTOR_OLLAMA)
     try:
-        return asyncio.run(_pedir_audio_edge_tts(texto, voz))
+        return asyncio.run(_pedir_audio_edge_tts(pronunciable(texto, voz), voz, _velocidad(motor)))
     except Exception as error:  # noqa: BLE001 - respaldo best-effort: cualquier fallo cae a ElevenLabs
         print(f"[aviso] edge-tts falló ({error}), probando ElevenLabs...")
         return None

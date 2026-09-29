@@ -9,17 +9,17 @@ import subprocess
 from pathlib import Path
 
 NOMBRE_TAREA = "Jarvis-Nucleo"
-RUTA_LANZADOR = Path(__file__).resolve().parent.parent.parent / "Jarvis-Nucleo.bat"
+RUTA_LANZADOR = Path(__file__).resolve().parent.parent.parent / "Jarvis.bat"
 
 
 def registrar_tarea_programada() -> str:
-    """Crea (o reemplaza) una tarea del Programador de tareas que corre Jarvis-Nucleo.bat al iniciar sesión."""
+    """Crea (o reemplaza) una tarea del Programador de tareas que corre "Jarvis.bat nucleo" al iniciar sesión."""
     if not RUTA_LANZADOR.exists():
         return f"No encontré el lanzador en {RUTA_LANZADOR}; no se registró nada."
     try:
         subprocess.run(
             [
-                "schtasks", "/create", "/tn", NOMBRE_TAREA, "/tr", f'"{RUTA_LANZADOR}"',
+                "schtasks", "/create", "/tn", NOMBRE_TAREA, "/tr", f'"{RUTA_LANZADOR}" nucleo',
                 "/sc", "onlogon", "/rl", "limited", "/f",
             ],
             capture_output=True,

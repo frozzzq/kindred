@@ -1,2 +1,4 @@
 -r requirements.txt
 pytest>=8.0
+# Solo para verificar la UI en modo web (captura con Chrome headless): ver Convenciones en CLAUDE.md
+flet-web==1.0.1

@@ -271,9 +271,9 @@ def test_tocar_microfono_sin_estar_ocupado_no_marca_interrupcion():
 # --- cerrar la aplicación ---
 
 
-@patch("src.ui.app.hablar")
+@patch("src.ui.app.VozEnVivo")
 @patch("src.ui.app.procesar_comando")
-def test_atender_voz_cierra_la_ventana_si_la_respuesta_lo_pide(mock_procesar, _mock_hablar):
+def test_atender_voz_cierra_la_ventana_si_la_respuesta_lo_pide(mock_procesar, _mock_voz):
     app = JarvisApp(MagicMock())
     mock_procesar.return_value = Respuesta(texto="Hasta luego.", motor=MOTOR_ACCION, cerrar=True)
 
@@ -287,7 +287,7 @@ def test_atender_voz_no_cierra_la_ventana_si_no_se_lo_piden(mock_procesar):
     app = JarvisApp(MagicMock())
     mock_procesar.return_value = Respuesta(texto="ok", motor=MOTOR_OLLAMA, cerrar=False)
 
-    with patch("src.ui.app.hablar"):
+    with patch("src.ui.app.VozEnVivo"):
         app._atender_voz("hola")
 
     app.page.run_task.assert_not_called()
@@ -301,3 +301,82 @@ def test_procesar_chat_cierra_la_ventana_si_la_respuesta_lo_pide(mock_procesar):
     app._procesar_chat("ciérrate")
 
     app.page.run_task.assert_called_once_with(app.page.window.close)
+
+
+# --- voz y chat en vivo ---
+
+
+@patch("src.ui.app.VozEnVivo")
+@patch("src.ui.app.procesar_comando")
+def test_la_voz_empieza_con_la_primera_oracion_y_dice_solo_lo_que_falta(mock_procesar, mock_voz_cls):
+    def procesar(texto, al_oracion=None, **_):
+        al_oracion("¡Hola, Josué!")
+        return Respuesta(texto="¡Hola, Josué! Tienes dos pendientes.", motor=MOTOR_OLLAMA, por_decir="Tienes dos pendientes.")
+
+    mock_procesar.side_effect = procesar
+    app = JarvisApp(MagicMock())
+
+    app._atender_voz("hola")
+
+    voz = mock_voz_cls.return_value
+    assert mock_voz_cls.call_count == 1  # una sola voz para todo el turno
+    assert [c.args[0] for c in voz.decir.call_args_list] == ["¡Hola, Josué!", "Tienes dos pendientes."]
+    voz.terminar.assert_called_once()
+    voz.esperar.assert_called_once()
+
+
+@patch("src.ui.app.procesar_comando")
+def test_el_chat_escribe_la_respuesta_mientras_llega_y_deja_la_final(mock_procesar):
+    vistos = []
+
+    def procesar(texto, al_oracion=None, **_):
+        al_oracion("Primera parte.")
+        vistos.append(app.historial.controls[-1].controls[0].content.controls[1].value)
+        return Respuesta(texto="Texto final corregido.", motor=MOTOR_OLLAMA, por_decir="")
+
+    mock_procesar.side_effect = procesar
+    app = JarvisApp(MagicMock())
+
+    app._procesar_chat("hola")
+
+    assert vistos == ["Primera parte."]
+    assert app.historial.controls[-1].controls[0].content.controls[1].value == "Texto final corregido."
+    assert len(app.historial.controls) == 1  # no se duplica la burbuja
+
+
+@patch("src.ui.app.hablar")
+def test_saluda_solo_una_vez_al_dia(mock_hablar, tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    app = JarvisApp(MagicMock())
+
+    app._saludar_si_toca()
+    app._saludar_si_toca()
+
+    assert mock_hablar.call_count == 1
+    assert "Hoy no tienes nada pendiente" in mock_hablar.call_args.args[0]
+
+
+def test_completar_desde_la_ui_pasa_por_el_registro_con_permisos():
+    app = JarvisApp(MagicMock())
+
+    with patch("src.ui.app.REGISTRO.ejecutar", return_value="Pendiente completado: x") as mock_ejecutar:
+        app._completar_desde_ui("Comprar leche")
+
+    nombre, argumentos, contexto = mock_ejecutar.call_args.args
+    assert nombre == "completar_pendiente" and argumentos == {"descripcion": "Comprar leche"}
+    assert contexto.canal == "ui"
+
+
+def test_la_ui_nunca_carga_win11toast():
+    """winrt (win11toast) y onnxruntime (voz) en el mismo proceso truenan (access violation, código 139).
+
+    Pasó al abrir la UI nueva: importaba nucleo.proceso → servicio → avisos → win11toast. Se revisa
+    en un proceso aparte porque aquí la suite ya pudo haberlo cargado por otros tests.
+    """
+    import subprocess
+    import sys
+
+    codigo = "import sys, src.ui.app, src.main_ui; print('win11toast' in sys.modules)"
+    salida = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, timeout=120)
+
+    assert salida.stdout.strip().endswith("False"), salida.stderr

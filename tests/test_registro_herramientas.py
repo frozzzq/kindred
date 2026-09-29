@@ -218,11 +218,37 @@ def test_catalogo_tiene_agregar_recurrente():
     assert set(esquemas["agregar_recurrente"]["parameters"]["required"]) == {"tarea", "frecuencia"}
 
 
+def test_catalogo_tiene_las_herramientas_nuevas_de_boveda():
+    assert {"crear_nota", "conectar_notas", "eliminar_nota"} <= REGISTRO.nombres()
+
+
+def test_catalogo_eliminar_nota_pide_confirmacion_y_no_borra_si_se_cancela(tmp_path, monkeypatch):
+    monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+    (tmp_path / "nota.md").write_text("contenido", encoding="utf-8")
+    preguntas = []
+    contexto = ContextoEjecucion(confirmador=lambda p: preguntas.append(p) or False)
+
+    resultado = REGISTRO.ejecutar("eliminar_nota", {"ruta": "nota.md"}, contexto)
+
+    assert preguntas == ["¿Confirmas que elimine la nota 'nota.md'? Se irá a la papelera."]
+    assert resultado == MENSAJE_CANCELADO
+    assert (tmp_path / "nota.md").exists()
+
+
 def test_seleccionar_grupos_agrega_pantalla_solo_si_hace_falta():
-    assert seleccionar_grupos("¿qué pendientes tengo?") == {"boveda", "sistema"}
+    assert seleccionar_grupos("¿qué pendientes tengo?") == {"boveda", "sistema", "notas"}
     assert "pantalla" in seleccionar_grupos("abre el bloc de notas y escribe hola")
     assert "pantalla" in seleccionar_grupos("presiona el botón Aceptar")
     assert "pantalla" not in seleccionar_grupos("describe mi proyecto")
+
+
+def test_el_modelo_local_solo_recibe_herramientas_de_notas_si_habla_de_notas():
+    """Con 8 herramientas de gestión de notas de más, qwen3:8b se confunde; solo van cuando hacen falta."""
+    assert "notas" not in seleccionar_grupos("¿qué pendientes tengo?", modelo_local=True)
+    assert "notas" not in seleccionar_grupos("ya llamé al dentista", modelo_local=True)
+    assert "notas" in seleccionar_grupos("crea una nota sobre node.js", modelo_local=True)
+    assert "notas" in seleccionar_grupos("conecta mi nota de Jarvis con la de Ollama", modelo_local=True)
+    assert "notas" in seleccionar_grupos("borra la nota vieja", modelo_local=True)
 
 
 def test_el_modelo_local_solo_recibe_sistema_si_se_pide_abrir_algo():

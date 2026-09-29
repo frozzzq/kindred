@@ -8,7 +8,7 @@ from src.nucleo.autoarranque import NOMBRE_TAREA, quitar_tarea_programada, regis
 @patch("src.nucleo.autoarranque.subprocess.run")
 def test_registrar_tarea_programada(mock_run, mock_ruta):
     mock_ruta.exists.return_value = True
-    mock_ruta.__str__.return_value = "C:\\kindred\\Jarvis-Nucleo.bat"
+    mock_ruta.__str__.return_value = r"C:\kindred\Jarvis.bat"
     mock_run.return_value = subprocess.CompletedProcess([], 0)
 
     resultado = registrar_tarea_programada()
@@ -17,6 +17,7 @@ def test_registrar_tarea_programada(mock_run, mock_ruta):
     assert comando[:3] == ["schtasks", "/create", "/tn"]
     assert NOMBRE_TAREA in comando
     assert "/sc" in comando and "onlogon" in comando
+    assert comando[comando.index("/tr") + 1] == r'"C:\kindred\Jarvis.bat" nucleo'  # el lanzador único, modo núcleo
     assert "Listo" in resultado
 
 

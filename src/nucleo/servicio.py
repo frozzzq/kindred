@@ -1,25 +1,25 @@
 """El corazón del núcleo: cada 30s revisa recordatorios y briefings, y avisa lo que toque.
 
-Corre como proceso de fondo, independiente de si la UI/voz/CLI están abiertas (Jarvis-Nucleo.bat).
+Corre como proceso de fondo, independiente de si la UI/voz/CLI están abiertas ("Jarvis.bat nucleo", o
+lo inicia la UI sin ventana: ver src/nucleo/proceso.py).
 Nunca debe morirse por un fallo puntual (Ollama caído, sin bóveda, sin internet): se registra el
 error y se sigue en la siguiente vuelta.
 """
 
 import os
 import re
+import sys
 import time as _reloj
 from collections.abc import Callable
 from datetime import datetime, time
 
-from dotenv import load_dotenv
-
-from src.consola import forzar_utf8
-from src.nucleo import avisos, briefing, estado, recordatorios
-from src.obsidian.estructura import asegurar_estructura_boveda
+from src.nucleo import avisos, briefing, diario, estado, jardinero, recordatorios
 from src.obsidian.vault_writer import escribir_nota
 
-INTERVALO_SEGUNDOS = 30
+INTERVALO_SEGUNDOS = estado.INTERVALO_SEGUNDOS
+VUELTAS_ENTRE_JARDINERO = 4  # cada ~2 minutos: el índice y las conexiones no necesitan más
 RUTA_HEARTBEAT = "00-Sistema/HEARTBEAT.md"
+CLAVE_ULTIMA_VUELTA = estado.CLAVE_ULTIMA_VUELTA  # para que la UI sepa si el núcleo está vivo
 
 _HORARIO = re.compile(r"^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$")
 
@@ -60,20 +60,38 @@ def _revisar_briefing(tipo: str, titulo: str, generar: Callable[[datetime], str]
     return True
 
 
-def _actualizar_heartbeat(ahora: datetime, avisados: int) -> None:
+def _actualizar_heartbeat(ahora: datetime, avisados: int, jardin: list[str]) -> None:
     contenido = (
         "# Estado del núcleo\n\n"
         f"Última vuelta: {ahora.strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"Recordatorios avisados en esta vuelta: {avisados}\n"
     )
+    if jardin:
+        contenido += "Jardinero de la bóveda:\n" + "\n".join(f"- {linea}" for linea in jardin) + "\n"
     try:
         escribir_nota(RUTA_HEARTBEAT, contenido, sobrescribir=True)
+        estado.guardar_valor(CLAVE_ULTIMA_VUELTA, ahora.isoformat(timespec="seconds"))
     except (RuntimeError, OSError) as error:
         print(f"[núcleo] no se pudo actualizar HEARTBEAT.md: {error}")
 
 
+def _escribir_diario_si_toca(ahora: datetime) -> None:
+    """Después del cierre del día, una vez: la nota del diario con lo que pasó hoy."""
+    hora = os.getenv("HORA_CIERRE", "").strip()
+    if not hora or ahora.strftime("%H:%M") < hora or estado.briefing_de_hoy("diario") == ahora.date().isoformat():
+        return
+    ruta = diario.escribir_diario(ahora.date())
+    estado.marcar_briefing("diario", ahora.date().isoformat())
+    if ruta:
+        print(f"[núcleo] diario del día escrito en {ruta}")
+
+
+_vueltas = 0
+
+
 def ciclo(ahora: datetime | None = None) -> None:
-    """Una vuelta del heartbeat: avisa recordatorios vencidos y, si toca, dispara un briefing."""
+    """Una vuelta del heartbeat: avisa recordatorios vencidos, dispara briefings y cuida la bóveda."""
+    global _vueltas
     ahora = ahora or datetime.now()
     avisados = 0
     if not _en_horario_silencio(ahora):
@@ -81,16 +99,23 @@ def ciclo(ahora: datetime | None = None) -> None:
         # HORA_BRIEFING/HORA_CIERRE usan el mismo nombre de variable que el tipo guardado en estado.db.
         _revisar_briefing("briefing", "Buenos días", briefing.generar_matutino, ahora)
         _revisar_briefing("cierre", "Cierre del día", briefing.generar_cierre, ahora)
-    _actualizar_heartbeat(ahora, avisados)
+    _escribir_diario_si_toca(ahora)
+    jardin: list[str] = []
+    if _vueltas % VUELTAS_ENTRE_JARDINERO == 0:
+        try:
+            jardin = jardinero.cuidar()
+        except (RuntimeError, OSError, ValueError) as error:
+            print(f"[núcleo] el jardinero falló: {error}")
+        for linea in jardin:
+            print(f"[núcleo] {linea}")
+    _vueltas += 1
+    _actualizar_heartbeat(ahora, avisados, jardin)
 
 
 def main() -> None:
-    forzar_utf8()
-    load_dotenv(override=True)
-    try:
-        asegurar_estructura_boveda()
-    except RuntimeError as error:
-        print(f"[núcleo] no se pudo preparar la bóveda de Obsidian: {error}")
+    from src.arranque import preparar
+
+    preparar(sys.argv[1:])
 
     print("Crimson y Clover (núcleo, Fase 7). Ctrl+C para salir.")
     while True:

@@ -217,7 +217,7 @@ def test_manda_keep_alive_para_no_descargar_el_modelo(mock_post):
     preguntar_ollama("hola")
 
     _args, kwargs = mock_post.call_args
-    assert kwargs["json"]["keep_alive"] == "30m"
+    assert kwargs["json"]["keep_alive"] == "3h"
 
 
 @patch("src.engines.ollama_client.time.sleep")
@@ -269,3 +269,74 @@ def test_error_http_no_reintenta(mock_post):
 
     assert resultado.exito is False
     assert mock_post.call_count == 1
+
+
+# --- streaming (respuesta en vivo) ---
+
+
+class _StreamFalso:
+    """Imita httpx.stream: devuelve las líneas JSON que mandaría Ollama en modo streaming."""
+
+    def __init__(self, trozos):
+        self._lineas = [json.dumps(t) for t in trozos]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self):
+        return iter(self._lineas)
+
+
+def _trozos_de_texto(*partes):
+    return [{"message": {"content": p}, "done": False} for p in partes] + [{"message": {"content": ""}, "done": True}]
+
+
+@patch("src.engines.ollama_client.httpx.stream")
+def test_streaming_entrega_el_texto_mientras_llega(mock_stream):
+    mock_stream.return_value = _StreamFalso(_trozos_de_texto("¡Hola, ", "Josué! ", "¿Cómo vas?"))
+    recibido = []
+
+    respuesta = conversar_ollama([{"role": "user", "content": "hola"}], al_texto=lambda t, _u: recibido.append(t))
+
+    assert "".join(recibido) == "¡Hola, Josué! ¿Cómo vas?"
+    assert respuesta.texto == "¡Hola, Josué! ¿Cómo vas?"
+    assert mock_stream.call_args.kwargs["json"]["stream"] is True
+
+
+@patch("src.engines.ollama_client.httpx.stream")
+def test_streaming_no_reenvia_una_llamada_escrita_como_json(mock_stream):
+    """Si el modelo escribe la llamada como texto, no debe leerse en voz alta; se ejecuta igual."""
+    escrita = '{"name": "leer_nota", "arguments": {"ruta": "Yo"}}'
+    mock_stream.side_effect = [
+        _StreamFalso(_trozos_de_texto(escrita[:10], escrita[10:])),
+        _StreamFalso(_trozos_de_texto("Te llamas Josué.")),
+    ]
+    recibido = []
+    herramientas = REGISTRO.esquemas_ollama({"boveda"})
+
+    respuesta = conversar_ollama(
+        [{"role": "user", "content": "¿cómo me llamo?"}],
+        herramientas=herramientas,
+        ejecutar=lambda nombre, argumentos: "Se llama Josué",
+        al_texto=lambda t, _u: recibido.append(t),
+    )
+
+    assert "".join(recibido) == "Te llamas Josué."
+    assert respuesta.herramientas_usadas == ["leer_nota"]
+    assert respuesta.llamadas_modelo == 2
+
+
+@patch("src.engines.ollama_client.httpx.stream")
+def test_streaming_respuesta_cortisima_tambien_se_entrega(mock_stream):
+    mock_stream.return_value = _StreamFalso(_trozos_de_texto("¡Va!"))
+    recibido = []
+
+    conversar_ollama([{"role": "user", "content": "ok"}], al_texto=lambda t, _u: recibido.append(t))
+
+    assert recibido == ["¡Va!"]

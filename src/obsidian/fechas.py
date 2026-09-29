@@ -18,7 +18,7 @@ from datetime import date, datetime, time, timedelta
 
 from dateparser.search import search_dates
 
-from src.obsidian.vault_writer import normalizar
+from src.obsidian.texto import normalizar
 
 _CONFIGURACION_DATEPARSER = {"PREFER_DATES_FROM": "future"}
 

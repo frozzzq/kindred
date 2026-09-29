@@ -37,15 +37,26 @@ def test_cada_nota_y_carpeta_es_un_nodo(boveda):
 
 
 def test_las_notas_se_unen_a_su_carpeta_y_las_subcarpetas_a_su_padre(boveda):
-    boveda("00-Sistema/Configuracion.md")
-    boveda("00-Sistema/Respaldos/Viejo.md")
+    boveda("04-Conocimiento/Idea.md")
+    boveda("04-Conocimiento/Programación/Node.js.md")
     boveda("Suelta.md")
 
     assert _carpetas(construir_grafo()) == {
-        frozenset(("00-Sistema", "00-Sistema/Configuracion.md")),
-        frozenset(("00-Sistema/Respaldos", "00-Sistema/Respaldos/Viejo.md")),
-        frozenset(("00-Sistema", "00-Sistema/Respaldos")),
+        frozenset(("04-Conocimiento", "04-Conocimiento/Idea.md")),
+        frozenset(("04-Conocimiento/Programación", "04-Conocimiento/Programación/Node.js.md")),
+        frozenset(("04-Conocimiento", "04-Conocimiento/Programación")),
     }
+
+
+def test_las_notas_del_sistema_no_son_parte_del_grafo(boveda):
+    """El registro de acciones y los logs no son conocimiento: en el grafo solo eran ruido."""
+    boveda("00-Sistema/Registro-Acciones.md", "[[Yo]]")
+    boveda("01-Perfil/Yo.md")
+
+    grafo = construir_grafo()
+
+    assert {n.id for n in grafo.nodos} == {"01-Perfil", "01-Perfil/Yo.md"}
+    assert grafo.huerfanas() == ["01-Perfil/Yo.md"]
 
 
 def test_resuelve_enlaces_como_obsidian(boveda):
