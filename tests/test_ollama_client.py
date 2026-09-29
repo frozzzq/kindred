@@ -102,6 +102,21 @@ def test_conversar_ejecuta_una_llamada_escrita_como_texto(mock_post):
     assert resultado.herramientas_usadas == ["recordar_sobre_usuario"]
 
 
+@patch("src.engines.ollama_client.httpx.post")
+def test_conversar_devuelve_los_resultados_de_las_herramientas(mock_post):
+    """resultados_herramientas: lo que devolvió cada herramienta, en el mismo orden que
+    herramientas_usadas — se usa para corregir al modelo si luego niega un cambio que sí hizo."""
+    mock_post.side_effect = [
+        _respuesta_http(_mensaje(llamadas=[_llamada("agregar_pendiente", {"tarea": "Comprar leche"})])),
+        _respuesta_http(_mensaje("Listo.")),
+    ]
+
+    resultado = conversar_ollama([], DEFINICIONES, lambda nombre, args: "Pendiente agregado: Comprar leche")
+
+    assert resultado.herramientas_usadas == ["agregar_pendiente"]
+    assert resultado.resultados_herramientas == ["Pendiente agregado: Comprar leche"]
+
+
 @pytest.mark.parametrize(
     "escrita",
     [

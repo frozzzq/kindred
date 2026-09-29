@@ -4,7 +4,11 @@ from src.herramientas.catalogo import REGISTRO
 from src.herramientas.registro import ContextoEjecucion
 from src.obsidian.herramientas import (
     HERRAMIENTAS_DE_ESCRITURA,
+    HERRAMIENTAS_DE_SISTEMA,
+    afirma_accion_sin_hacerla,
     afirma_cambio_sin_hacerlo,
+    niega_accion_hecha,
+    resumen_de_acciones,
     usuario_reporta_tarea_hecha,
 )
 
@@ -56,6 +60,102 @@ def test_no_marca_respuestas_que_no_afirman_cambios(texto):
 def test_las_herramientas_de_escritura_estan_registradas():
     """La red de seguridad afirma_cambio_sin_hacerlo depende de estos nombres: si uno cambia, deja de funcionar."""
     assert HERRAMIENTAS_DE_ESCRITURA <= REGISTRO.nombres()
+
+
+def test_las_herramientas_de_sistema_estan_registradas():
+    assert HERRAMIENTAS_DE_SISTEMA <= REGISTRO.nombres()
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Abro la calculadora. ¿Qué necesitas calcular?",
+        "Abriendo la calculadora.",
+        "Abrí la calculadora para ti.",
+        "Ya abrí Spotify, ¿algo más?",
+        "Hice click en Guardar.",
+        "Ya di clic en el botón.",
+        "Escribo hola mundo en el documento.",
+        "Escribiendo el correo...",
+    ],
+)
+def test_detecta_cuando_dice_haber_hecho_una_accion_de_sistema_sin_herramienta(texto):
+    """Caso real: con frases indirectas ("a ver, la calculadora"), Crimson dijo haber abierto la
+    app sin llamar abrir_aplicacion ni una sola vez en 8 intentos."""
+    assert afirma_accion_sin_hacerla(texto, []) is True
+    assert afirma_accion_sin_hacerla(texto, ["leer_nota"]) is True
+
+
+@pytest.mark.parametrize(
+    "texto, herramienta",
+    [
+        ("Ya está, la calculadora está abierta.", "abrir_aplicacion"),
+        ("Perfecto, hice click en Guardar.", "hacer_click"),
+        ("Escribiendo el correo...", "escribir_texto"),
+    ],
+)
+def test_no_marca_si_si_uso_una_herramienta_de_sistema(texto, herramienta):
+    assert afirma_accion_sin_hacerla(texto, [herramienta]) is False
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "¿Quieres que abra algo?",  # pregunta, no afirmación
+        "Para abrir un archivo, ve al menú Archivo.",  # infinitivo explicativo
+        "Descreve mi proyecto.",  # "describe" no debe confundirse con "escribo"/"escribiendo"
+        "No tengo acceso a tu proyecto específico.",
+        "¿Necesitas que escriba algo más?",
+    ],
+)
+def test_afirma_accion_sin_hacerla_no_se_dispara_de_mas(texto):
+    assert afirma_accion_sin_hacerla(texto, []) is False
+
+
+@pytest.mark.parametrize(
+    "texto, herramienta",
+    [
+        ("No hice ningún cambio.", "agregar_pendiente"),
+        ("No logré hacer ese cambio en tu bóveda. ¿Me lo repites, por favor?", "recordar_sobre_usuario"),
+        ("No se guardó nada.", "agregar_recurrente"),
+        ("No pude hacerlo.", "abrir_aplicacion"),
+    ],
+)
+def test_detecta_cuando_niega_una_accion_que_si_hizo(texto, herramienta):
+    """Caso real: tras un agregar_pendiente/recordar_sobre_usuario/agregar_recurrente exitosos
+    (confirmados en el registro de auditoría), Crimson igual dijo "No hice ningún cambio."."""
+    assert niega_accion_hecha(texto, [herramienta]) is True
+
+
+def test_no_marca_como_negacion_si_no_se_uso_ninguna_herramienta():
+    """Si de verdad no se hizo nada, "no hice ningún cambio" es cierto, no hay nada que corregir."""
+    assert niega_accion_hecha("No hice ningún cambio.", []) is False
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Ya tienes programada la tarea de tomar medicina diario a las 9 p.m.",
+        "Perfecto, la calculadora está abierta.",
+        "Anotado, ya tengo a Laura.",
+    ],
+)
+def test_no_marca_respuestas_que_no_niegan_nada(texto):
+    assert niega_accion_hecha(texto, ["agregar_recurrente"]) is False
+
+
+def test_resumen_de_acciones_usa_los_resultados_de_las_herramientas_de_accion():
+    resumen = resumen_de_acciones(
+        ["leer_nota", "agregar_pendiente"],
+        ["contenido de la nota...", "Pendiente agregado: llamar a mi mamá para el 2026-09-29 a las 18:00"],
+    )
+
+    assert resumen == "Pendiente agregado: llamar a mi mamá para el 2026-09-29 a las 18:00"
+    assert "contenido de la nota" not in resumen  # leer_nota no es una acción, no debe aparecer aquí
+
+
+def test_resumen_de_acciones_sin_ninguna_accion_real():
+    assert resumen_de_acciones(["leer_nota"], ["contenido..."]) == "Ya quedó hecho."
 
 
 def test_leer_nota_devuelve_contenido_completo(tmp_path, monkeypatch):

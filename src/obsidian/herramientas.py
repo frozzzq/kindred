@@ -4,6 +4,9 @@ En vez de inyectarle fragmentos pasivos, el modelo pide lo que necesita:
 leer una nota completa, buscar, o escribir (pendientes, perfil, contactos).
 Aquí están las implementaciones que devuelven texto para el modelo; se
 registran con su riesgo en src/herramientas/catalogo.py.
+
+También vive aquí la red de seguridad contra que el modelo no diga la verdad sobre lo que hizo:
+afirmar un cambio/acción que no hizo (bóveda o sistema), o negar uno que sí hizo.
 """
 
 import re
@@ -45,7 +48,9 @@ def herramienta_buscar(consulta: str) -> str:
     return _como_dato("\n".join(f"[{r.ruta_relativa}]: {r.fragmento}" for r in resultados))
 
 
-HERRAMIENTAS_DE_ESCRITURA = {"agregar_pendiente", "completar_pendiente", "recordar_sobre_usuario", "guardar_contacto"}
+HERRAMIENTAS_DE_ESCRITURA = {
+    "agregar_pendiente", "completar_pendiente", "agregar_recurrente", "recordar_sobre_usuario", "guardar_contacto",
+}
 
 # "Anoté", "marqué", "añadí", "he agregado", "ya quedó guardado", "Listo, anotado"... y también
 # las formas naturales que se le piden al guardar un dato ("lo tendré presente"): si las dice
@@ -74,6 +79,73 @@ def afirma_cambio_sin_hacerlo(texto: str, herramientas_usadas: list[str]) -> boo
     tienden a repetir la frase sin llamar la herramienta (pasó en pruebas reales).
     """
     return bool(_AFIRMA_CAMBIO.search(texto)) and not HERRAMIENTAS_DE_ESCRITURA.intersection(herramientas_usadas)
+
+
+HERRAMIENTAS_DE_SISTEMA = {"abrir_aplicacion", "abrir_url", "abrir_carpeta", "hacer_click", "escribir_texto"}
+HERRAMIENTAS_DE_ACCION = HERRAMIENTAS_DE_ESCRITURA | HERRAMIENTAS_DE_SISTEMA
+
+# "Abro la calculadora", "abriendo Spotify", "ya hice click en Guardar", "escribiendo el correo"...
+# En pruebas reales, con frases indirectas ("a ver, la calculadora", sin la palabra "abre"), el
+# modelo respondió como si hubiera abierto la app sin llamar ninguna herramienta de sistema (0/8
+# veces la llamó). Los límites de palabra evitan que "abrir" (infinitivo, en una pregunta o
+# explicación) o "describ..." (contiene "escrib...") disparen esto por error.
+_AFIRMA_ACCION_SISTEMA = re.compile(
+    r"\b(abro|abriendo|abrí|abri|ya abrí|ya abri)\b"
+    r"|\b(hice|hago|di|doy|dando)\s+(clic|click)\b"
+    r"|\b(escribo|escribí|escribi|escribiendo|ya escribí|ya escribi)\b",
+    re.IGNORECASE,
+)
+
+MENSAJE_VERIFICACION_SISTEMA = (
+    "Verificación del sistema: en este turno no llamaste ninguna herramienta de sistema (abrir "
+    "aplicación/url/carpeta, hacer click o escribir texto), así que esa acción NO se hizo de "
+    "verdad. Si el usuario pidió una acción así, llama ahora la herramienta correcta. Si no pidió "
+    "ninguna acción, responde de nuevo sin afirmar que la hiciste."
+)
+
+
+def afirma_accion_sin_hacerla(texto: str, herramientas_usadas: list[str]) -> bool:
+    """True si el modelo dice haber hecho una acción de sistema (abrir algo, click, escribir) sin
+    haber llamado ninguna herramienta de sistema. Complementa afirma_cambio_sin_hacerlo (bóveda)."""
+    if HERRAMIENTAS_DE_SISTEMA.intersection(herramientas_usadas):
+        return False
+    return bool(_AFIRMA_ACCION_SISTEMA.search(texto))
+
+
+# El caso contrario: el modelo SÍ llamó la herramienta (agregar_pendiente, abrir_aplicacion...) pero
+# luego lo niega ("No hice ningún cambio."). Visto en pruebas reales, repetido varias veces incluso
+# después de un agregar_pendiente/recordar_sobre_usuario/agregar_recurrente exitosos — probablemente
+# porque, tras fallar de verdad un par de veces por errores de transcripción, el modelo se queda
+# repitiendo la misma frase de las últimas veces aunque esta sí haya funcionado.
+_NIEGA_ACCION = re.compile(
+    r"\bno\s+(hice|logr[eé]|pude|complet[eé]|agregu[eé]|guard[eé]|anot[eé]|abr[ií]|escrib[ií])\b"
+    r"|\bno\s+se\s+(hizo|logr[oó]|guard[oó]|agreg[oó]|complet[oó]|pudo)\b",
+    re.IGNORECASE,
+)
+
+
+def niega_accion_hecha(texto: str, herramientas_usadas: list[str]) -> bool:
+    """True si el modelo niega haber hecho algo, aunque SÍ llamó una herramienta real este turno.
+
+    A diferencia de afirma_cambio_sin_hacerlo, aquí ya sabemos (por herramientas_usadas) que la
+    acción sí ocurrió: no tiene caso pedirle al modelo que lo intente de nuevo (podría repetirla,
+    ej. abrir la misma app dos veces); mejor corregir su respuesta con lo que la herramienta ya
+    confirmó (ver resumen_de_acciones).
+    """
+    if not HERRAMIENTAS_DE_ACCION.intersection(herramientas_usadas):
+        return False
+    return bool(_NIEGA_ACCION.search(texto))
+
+
+def resumen_de_acciones(herramientas_usadas: list[str], resultados_herramientas: list[str]) -> str:
+    """Un texto honesto de lo que de verdad pasó este turno, armado con lo que cada herramienta de
+    acción (bóveda o sistema) devolvió — para reemplazar una respuesta que lo niega."""
+    relevantes = [
+        resultado
+        for nombre, resultado in zip(herramientas_usadas, resultados_herramientas)
+        if nombre in HERRAMIENTAS_DE_ACCION
+    ]
+    return " ".join(relevantes) if relevantes else "Ya quedó hecho."
 
 
 # "Ya llamé al dentista", "ya entregué el reporte", "ya hice ejercicio"... el usuario cuenta que

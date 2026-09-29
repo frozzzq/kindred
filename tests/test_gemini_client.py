@@ -134,6 +134,7 @@ def test_conversar_ejecuta_la_herramienta_pedida_y_devuelve_la_respuesta_final(m
     assert resultado.exito is True
     assert resultado.texto == "Listo, abrí Spotify."
     assert resultado.herramientas_usadas == ["abrir_aplicacion"]
+    assert resultado.resultados_herramientas == ["Abriendo Spotify..."]
     assert ejecutadas == [("abrir_aplicacion", {"nombre": "spotify"})]
     # la segunda vuelta lleva el resultado de la herramienta
     contenidos = cliente_mock.models.generate_content.call_args.kwargs["contents"]

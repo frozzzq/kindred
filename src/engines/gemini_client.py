@@ -101,6 +101,7 @@ def conversar_gemini(
     )
     contenidos = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
     usadas: list[str] = []
+    resultados_texto: list[str] = []
 
     try:
         cliente = _crear_cliente(genai, types, api_key)
@@ -108,15 +109,21 @@ def conversar_gemini(
             respuesta = cliente.models.generate_content(model=modelo, contents=contenidos, config=config)
             llamadas = respuesta.function_calls or []
             if not llamadas:
-                return RespuestaMotor(exito=True, texto=respuesta.text or "", herramientas_usadas=usadas)
+                return RespuestaMotor(
+                    exito=True, texto=respuesta.text or "", herramientas_usadas=usadas,
+                    resultados_herramientas=resultados_texto,
+                )
 
             contenidos.append(respuesta.candidates[0].content)
-            resultados = []
+            partes_respuesta = []
             for llamada in llamadas:
                 resultado = ejecutar(llamada.name, dict(llamada.args or {}))
                 usadas.append(llamada.name)
-                resultados.append(types.Part.from_function_response(name=llamada.name, response={"resultado": resultado}))
-            contenidos.append(types.Content(role="user", parts=resultados))
+                resultados_texto.append(resultado)
+                partes_respuesta.append(
+                    types.Part.from_function_response(name=llamada.name, response={"resultado": resultado})
+                )
+            contenidos.append(types.Content(role="user", parts=partes_respuesta))
     except Exception as error:  # noqa: BLE001 - cualquier fallo de la API cae a fallback, no debe crashear
         # herramientas_usadas va también en el error: si ya actuó, el fallback no debe repetir las acciones.
         return RespuestaMotor(exito=False, error=f"Gemini falló: {error}", herramientas_usadas=usadas)

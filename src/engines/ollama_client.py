@@ -130,6 +130,7 @@ def conversar_ollama(
     """
     mensajes = list(mensajes)
     usadas: list[str] = []
+    resultados: list[str] = []
     nombres_validos = {h["function"]["name"] for h in herramientas or []}
     for _ in range(MAX_RONDAS_HERRAMIENTAS):
         cuerpo = _cuerpo_base(_modelo()) | {"messages": mensajes}
@@ -147,7 +148,10 @@ def conversar_ollama(
                 llamadas = [escrita]
                 mensaje = {"role": "assistant", "content": "", "tool_calls": llamadas}
         if not llamadas or ejecutar is None:
-            return RespuestaMotor(exito=True, texto=mensaje.get("content", ""), herramientas_usadas=usadas)
+            return RespuestaMotor(
+                exito=True, texto=mensaje.get("content", ""), herramientas_usadas=usadas,
+                resultados_herramientas=resultados,
+            )
 
         mensajes.append(mensaje)
         for llamada in llamadas:
@@ -160,6 +164,7 @@ def conversar_ollama(
                     argumentos = {}
             resultado = ejecutar(funcion.get("name", ""), argumentos)
             usadas.append(funcion.get("name", ""))
+            resultados.append(resultado)
             mensajes.append({"role": "tool", "tool_name": funcion.get("name", ""), "content": resultado})
 
     return RespuestaMotor(exito=False, error="El modelo encadenó demasiadas herramientas sin responder")

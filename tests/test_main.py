@@ -87,6 +87,62 @@ def test_si_insiste_sin_hacerlo_admite_que_no_pudo(mock_ollama):
 
 
 @patch("src.main.conversar_ollama")
+def test_si_dice_que_abrio_algo_sin_herramienta_se_le_pide_hacerlo(mock_ollama):
+    """Caso real: con frases indirectas ("a ver, la calculadora"), Crimson dijo "Abro la
+    calculadora" sin llamar abrir_aplicacion ni una sola vez."""
+    mock_ollama.side_effect = [
+        RespuestaMotor(exito=True, texto="Abro la calculadora. ¿Qué necesitas calcular?"),
+        RespuestaMotor(exito=True, texto="Listo, abrí la calculadora.", herramientas_usadas=["abrir_aplicacion"]),
+    ]
+
+    resultado = procesar_comando("a ver, la calculadora")
+
+    assert mock_ollama.call_count == 2
+    assert "Verificación del sistema" in mock_ollama.call_args.args[0][-1]["content"]
+    assert resultado.texto == "Listo, abrí la calculadora."
+
+
+@patch("src.main.conversar_ollama")
+def test_si_insiste_sin_abrir_nada_admite_que_no_pudo(mock_ollama):
+    mock_ollama.return_value = RespuestaMotor(exito=True, texto="Abriendo la calculadora.")
+
+    resultado = procesar_comando("a ver, la calculadora")
+
+    assert "No logré" in resultado.texto
+
+
+@patch("src.main.conversar_ollama")
+def test_si_niega_un_cambio_que_si_hizo_se_corrige_con_lo_que_paso_de_verdad(mock_ollama):
+    """Caso real, repetido varias veces: tras un agregar_pendiente exitoso (confirmado en el
+    registro de auditoría), Crimson igual dijo "No hice ningún cambio."."""
+    mock_ollama.return_value = RespuestaMotor(
+        exito=True,
+        texto="No hice ningún cambio.",
+        herramientas_usadas=["agregar_pendiente"],
+        resultados_herramientas=["Pendiente agregado: llamar a mi mamá para el 2026-09-29 a las 18:00"],
+    )
+
+    resultado = procesar_comando("recuérdame mañana a las 6pm que llame a mi mamá")
+
+    mock_ollama.assert_called_once()  # no hace falta reintentar: ya sabemos que sí se hizo
+    assert resultado.texto == "Pendiente agregado: llamar a mi mamá para el 2026-09-29 a las 18:00"
+
+
+@patch("src.main.conversar_ollama")
+def test_si_niega_abrir_algo_que_si_abrio_se_corrige(mock_ollama):
+    mock_ollama.return_value = RespuestaMotor(
+        exito=True,
+        texto="No pude hacerlo.",
+        herramientas_usadas=["abrir_aplicacion"],
+        resultados_herramientas=["Abriendo Calculator..."],
+    )
+
+    resultado = procesar_comando("abre la calculadora y ya me dices")
+
+    assert resultado.texto == "Abriendo Calculator..."
+
+
+@patch("src.main.conversar_ollama")
 def test_respuesta_normal_no_dispara_la_verificacion(mock_ollama):
     mock_ollama.return_value = RespuestaMotor(exito=True, texto="La capital de Francia es París.")
 

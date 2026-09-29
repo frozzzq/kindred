@@ -17,6 +17,7 @@ from src.agente.personalidad import construir_prompt_sistema, quitar_muletilla_f
 from src.agente.reflexion import aprender_si_quedo_sin_guardar
 from src.consola import forzar_utf8
 from src.engines.gemini_client import conversar_gemini, preguntar_gemini
+from src.engines.modelos import RespuestaMotor
 from src.engines.ollama_client import conversar_ollama
 from src.herramientas.catalogo import REGISTRO, seleccionar_grupos
 from src.herramientas.registro import ContextoEjecucion
@@ -25,7 +26,11 @@ from src.obsidian.estructura import asegurar_estructura_boveda
 from src.obsidian.herramientas import (
     MENSAJE_VERIFICACION,
     MENSAJE_VERIFICACION_PENDIENTE,
+    MENSAJE_VERIFICACION_SISTEMA,
+    afirma_accion_sin_hacerla,
     afirma_cambio_sin_hacerlo,
+    niega_accion_hecha,
+    resumen_de_acciones,
     usuario_reporta_tarea_hecha,
 )
 from src.obsidian.vault_writer import registrar_interaccion
@@ -46,6 +51,52 @@ from src.router.intent_router import (
 )
 
 PREFIJO_CARPETA = "carpeta "
+
+
+def _corregir_respuesta_ollama(
+    texto: str, mensajes: list[dict], herramientas: list[dict], ejecutar, respuesta: RespuestaMotor
+) -> RespuestaMotor:
+    """Corrige dos formas conocidas en las que Crimson no dice la verdad sobre lo que hizo (ver
+    src/obsidian/herramientas.py): afirmar un cambio/acción que no hizo, o negar uno que sí hizo.
+    """
+    if not respuesta.exito:
+        return respuesta
+
+    usadas = respuesta.herramientas_usadas or []
+    if niega_accion_hecha(respuesta.texto, usadas):
+        # Ya se hizo de verdad (herramientas_usadas lo prueba): reintentar con el modelo podría
+        # repetir la acción (ej. abrir la misma app otra vez). Mejor corregirlo con lo que la
+        # herramienta ya confirmó, sin volver a preguntarle.
+        respuesta.texto = resumen_de_acciones(usadas, respuesta.resultados_herramientas)
+        return respuesta
+
+    mensaje_verificacion = None
+    if afirma_cambio_sin_hacerlo(respuesta.texto, usadas):
+        mensaje_verificacion = MENSAJE_VERIFICACION
+    elif afirma_accion_sin_hacerla(respuesta.texto, usadas):
+        mensaje_verificacion = MENSAJE_VERIFICACION_SISTEMA
+    elif usuario_reporta_tarea_hecha(texto) and "completar_pendiente" not in usadas:
+        # El usuario contó que ya hizo algo, pero el modelo solo charló sin revisar si era un
+        # pendiente (no afirmó ningún cambio, así que afirma_cambio_sin_hacerlo no lo detecta).
+        mensaje_verificacion = MENSAJE_VERIFICACION_PENDIENTE
+    if not mensaje_verificacion:
+        return respuesta
+
+    mensajes = mensajes + [
+        {"role": "assistant", "content": respuesta.texto},
+        {"role": "user", "content": mensaje_verificacion},
+    ]
+    respuesta = conversar_ollama(mensajes, herramientas=herramientas, ejecutar=ejecutar)
+    if not respuesta.exito:
+        return respuesta
+
+    usadas = respuesta.herramientas_usadas or []
+    if niega_accion_hecha(respuesta.texto, usadas):
+        respuesta.texto = resumen_de_acciones(usadas, respuesta.resultados_herramientas)
+    elif afirma_cambio_sin_hacerlo(respuesta.texto, usadas) or afirma_accion_sin_hacerla(respuesta.texto, usadas):
+        # Mejor admitirlo que decirle al usuario que algo quedó hecho cuando no.
+        respuesta.texto = "No logré hacer eso. ¿Me lo repites, por favor?"
+    return respuesta
 
 
 @dataclass
@@ -199,23 +250,7 @@ def procesar_comando(
     herramientas = REGISTRO.esquemas_ollama(seleccionar_grupos(texto, modelo_local=True))
     ejecutar = REGISTRO.ejecutor(contexto)
     respuesta = conversar_ollama(mensajes, herramientas=herramientas, ejecutar=ejecutar)
-    mensaje_verificacion = None
-    if respuesta.exito:
-        if afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):
-            mensaje_verificacion = MENSAJE_VERIFICACION
-        elif usuario_reporta_tarea_hecha(texto) and "completar_pendiente" not in (respuesta.herramientas_usadas or []):
-            # El usuario contó que ya hizo algo, pero el modelo solo charló sin revisar si era un
-            # pendiente (no afirmó ningún cambio, así que afirma_cambio_sin_hacerlo no lo detecta).
-            mensaje_verificacion = MENSAJE_VERIFICACION_PENDIENTE
-    if mensaje_verificacion:
-        mensajes += [
-            {"role": "assistant", "content": respuesta.texto},
-            {"role": "user", "content": mensaje_verificacion},
-        ]
-        respuesta = conversar_ollama(mensajes, herramientas=herramientas, ejecutar=ejecutar)
-        if respuesta.exito and afirma_cambio_sin_hacerlo(respuesta.texto, respuesta.herramientas_usadas):
-            # Mejor admitirlo que decirle al usuario que algo quedó guardado cuando no.
-            respuesta.texto = "No logré hacer ese cambio en tu bóveda. ¿Me lo repites, por favor?"
+    respuesta = _corregir_respuesta_ollama(texto, mensajes, herramientas, ejecutar, respuesta)
     if respuesta.exito:
         return _responder(texto, respuesta.texto, MOTOR_OLLAMA, conversacion, respuesta.herramientas_usadas)
     return Respuesta(texto=f"[error] Ollama también falló: {respuesta.error}", motor=MOTOR_OLLAMA)
